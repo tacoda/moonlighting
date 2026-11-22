@@ -186,13 +186,16 @@ def local_main(target: Path) -> str:
     return git_out(target, "branch", "--show-current") or "main"
 
 
-def base_ref(target: Path) -> str:
-    """Where night branches start: the remote default if there is one, else local main."""
+def base_ref(root: Path, target: Path) -> str:
+    """Where night branches start: the target's local main, fast-forwarded to
+    the remote default when possible. Accepted-but-unpushed work makes local
+    main the freshest truth; ff-only never rewrites anything."""
+    main = local_main(target)
     r = git(target, "symbolic-ref", "--quiet", "--short",
             "refs/remotes/origin/HEAD", check=False)
     if r.returncode == 0 and r.stdout.strip():
-        return r.stdout.strip()
-    return local_main(target)
+        git(target, "merge", "--quiet", "--ff-only", r.stdout.strip(), check=False)
+    return main
 
 
 # ------------------------------------------------------------------ locks

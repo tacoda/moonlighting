@@ -91,3 +91,10 @@
 - Agents never edit `work-orders/`; the runner appends reports and flips
   statuses.
 - Logs are append-only. They are the factory's memory; never delete them.
+
+## Night-branch base policy
+
+Night branches start from the target's **local main, fast-forwarded to the
+remote default when possible**. Consequence: after accepting an order, push
+the target repo (or at least approve the next order only after the previous
+landing is integrated) — the night wants your freshest main.

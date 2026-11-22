@@ -16,7 +16,7 @@ def branch_state(root: Path, target: Path, branch: str) -> str:
     if factory.git(target, "show-ref", "--verify", "--quiet",
                    f"refs/heads/{branch}", check=False).returncode != 0:
         return ""
-    base = factory.base_ref(target)
+    base = factory.base_ref(root, target)
     behind, ahead = factory.git_out(
         target, "rev-list", "--left-right", "--count", f"{base}...{branch}").split()
     return (f"branch {branch} in {factory.display_target(root, target)}: "
