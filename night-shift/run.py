@@ -76,10 +76,16 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
         fields = factory.parse_order(order)
         if fields.get("status") != "approved":
             continue
+        problems = factory.lint_order(order, root)
+        if problems:
+            # malformed orders are blocked without spending tokens; the run
+            # keeps its honesty by stopping rather than skipping silently
+            queue.append((order, fields, None, problems))
+            continue
         target = factory.resolve_target(root, fields.get("repo"))
         if filter_target is not None and target != filter_target:
             continue
-        queue.append((order, fields, target))
+        queue.append((order, fields, target, []))
 
     if not queue:
         print("nothing approved" + (" for this repo" if filter_target else "")
@@ -87,8 +93,9 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
         return
 
     print(f"night shift queue (engine: {args.engine}):")
-    for order, fields, target in queue:
-        print(f"  {order.relative_to(root)}  ->  {show(target)}")
+    for order, fields, target, problems in queue:
+        lint = "" if not problems else f"  [lint: {len(problems)} problem(s)]"
+        print(f"  {order.relative_to(root)}  ->  {show(target)}{lint}")
     if args.dry_run:
         return
 
@@ -98,10 +105,13 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
     run_log = logs / f"{today}.md"
     sessions_file = root / "night-shift" / "sessions.json"
     system_prompt = (root / "night-shift" / "NIGHT-SHIFT.md").read_text()
+    qa_system_prompt = (root / "night-shift" / "QA-SHIFT.md").read_text()
+    json_audit = os.environ.get("FACTORY_JSON_AUDIT", "1") != "0"
+    qa_enabled = os.environ.get("FACTORY_QA", "1") != "0"
 
     ran = 0
     failed: str | None = None
-    for order, fields, target in queue:
+    for order, fields, target, problems in queue:
         if ran >= args.max_orders:
             break
         rel = order.relative_to(root)
@@ -110,6 +120,24 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
             print(f"skip {rel}: no id in frontmatter")
             continue
         order_branch = fields.get("branch") or f"wo/{order_id}"
+
+        # ---- lint gate: malformed orders are blocked before anything runs
+        if problems:
+            print(f"\n=== wo-{order_id} : {rel}  ->  BLOCKED by lint ===")
+            for p in problems:
+                print(f"  - {p}")
+            report = ("**Status** — BLOCKED (by lint, before the agent started)\n\n"
+                      + "\n".join(f"- {p}" for p in problems))
+            with order.open("a") as f:
+                f.write(f"\n### {datetime.now():%Y-%m-%d %H:%M} — blocked by lint\n\n")
+                f.write(report)
+            factory.set_status(order, "blocked")
+            factory.git(root, "add", str(rel), "night-shift/logs")
+            factory.git(root, "commit", "-q", "-m",
+                        f"night-shift: wo-{order_id} -> blocked (lint)")
+            print(f"wo-{order_id} -> blocked (lint)")
+            failed = order_id
+            break
 
         print(f"\n=== wo-{order_id} : {rel}  ->  {show(target)} ===")
 
@@ -149,8 +177,9 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
 
                 sessions = factory.load_sessions(sessions_file)
                 argv, new_ref = factory.build_command(
-                    args.engine, binary, system_prompt, prompt, order_id,
-                    sessions.get(f"{args.engine}:{order_id}"))
+                    args.engine, binary, system_prompt, prompt,
+                    f"wo-{order_id}", sessions.get(f"{args.engine}:{order_id}"),
+                    json_audit=json_audit)
                 if new_ref:
                     sessions[f"{args.engine}:{order_id}"] = new_ref
                     factory.save_sessions(sessions_file, sessions)
@@ -158,6 +187,7 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
                 # agent output is captured outside any working tree: anything
                 # written there could be swept onto a branch and vanish with
                 # a later checkout
+                raw_events = ""
                 with tempfile.TemporaryDirectory() as tmp:
                     out_path = Path(tmp) / "out.md"
                     err_path = Path(tmp) / "err.log"
@@ -171,8 +201,10 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
                     except FileNotFoundError:
                         factory.die(f"engine executable not found: {binary} "
                                     f"(set PI_BIN or CLAUDE_BIN)", 127)
-                    report = out_path.read_text()
+                    raw_events = out_path.read_text()
                     run_err = err_path.read_text()
+                report = (factory.extract_report(args.engine, raw_events)
+                          if json_audit else raw_events)
 
                 secs = int(time.monotonic() - started)
 
@@ -182,6 +214,41 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
                     factory.git(wpath, "commit", "-q", "-m",
                                 f"wo-{order_id}: night-shift WIP (auto-committed by runner)")
                     print(f"note: uncommitted work was auto-committed to {order_branch}")
+
+                # ---- QA pre-shift: verify, don't trust (advisory only)
+                qa_rc = None
+                qa_raw = ""
+                qa_report = ""
+                if rc == 0 and qa_enabled:
+                    qa_prompt = (
+                        f"QA pre-shift for work order {order_id}: the night shift "
+                        f"implemented it on branch {order_branch}, checked out here. "
+                        f"Review it against {bref}. Follow the QA manual.\n\n"
+                        f"# Work order {order_id}\n\n{order.read_text()}")
+                    sessions = factory.load_sessions(sessions_file)
+                    qargv, qref = factory.build_command(
+                        args.engine, binary, qa_system_prompt, qa_prompt,
+                        f"qa-{order_id}", sessions.get(f"{args.engine}:qa:{order_id}"),
+                        json_audit=json_audit)
+                    if qref:
+                        sessions[f"{args.engine}:qa:{order_id}"] = qref
+                        factory.save_sessions(sessions_file, sessions)
+                    print(f"QA pre-shift reviewing wo-{order_id} ...")
+                    qa_rc = 0
+                    with tempfile.TemporaryDirectory() as qtmp:
+                        qout = Path(qtmp) / "out.md"
+                        qerr = Path(qtmp) / "err.log"
+                        try:
+                            with qout.open("w") as out, qerr.open("w") as err:
+                                qproc = subprocess.run(qargv, cwd=wpath, stdout=out,
+                                                       stderr=err, timeout=timeout_secs)
+                                qa_rc = qproc.returncode
+                        except subprocess.TimeoutExpired:
+                            qa_rc = 124
+                        qa_raw = qout.read_text()
+                    qa_report = (factory.extract_report(args.engine, qa_raw)
+                                 if json_audit else qa_raw)
+                    print(f"QA pre-shift done (exit {qa_rc})")
             finally:
                 # the worktree is disposable; the branch keeps everything.
                 # --force: ignored artifacts (node_modules etc.) are not source
@@ -197,6 +264,10 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
         errfile = logs / f"{today}-wo-{order_id}.err.log"
         outfile.write_text(report)
         errfile.write_text("" if rc == 0 else run_err)
+        if json_audit:
+            (logs / f"{today}-wo-{order_id}.events.jsonl").write_text(raw_events)
+        if qa_raw:
+            (logs / f"{today}-wo-{order_id}.qa.jsonl").write_text(qa_raw)
 
         with order.open("a") as f:
             f.write(f"\n### {datetime.now():%Y-%m-%d %H:%M} — night run "
@@ -204,13 +275,17 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
             f.write(report)
             if rc != 0:
                 f.write(f"\n> run FAILED (exit {rc}). stderr: {errfile.relative_to(root)}\n")
+            if qa_rc is not None:
+                f.write(f"\n---\n\n### QA pre-shift (engine {args.engine}, exit {qa_rc})\n\n")
+                f.write(qa_report or "(empty QA report)")
 
         factory.set_status(order, new_status)
 
         with run_log.open("a") as f:
+            qa_note = f", qa exit {qa_rc}" if qa_rc is not None else ""
             f.write(f"\n## {datetime.now():%H:%M} run\n")
             f.write(f"- wo-{order_id} ({rel}) -> {show(target)}: {new_status}, "
-                    f"engine {args.engine}, exit {rc}, {secs}s — "
+                    f"engine {args.engine}, exit {rc}{qa_note}, {secs}s — "
                     f"report in order file; raw: {outfile.relative_to(root)}\n")
 
         add_paths = [str(rel), "night-shift/logs"]

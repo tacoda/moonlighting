@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import uuid
+from datetime import date
 from pathlib import Path
 
 
@@ -70,6 +71,68 @@ def set_status(path: Path, new_status: str) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
+VALID_STATUS = ("draft", "approved", "review", "blocked", "done", "rejected")
+REQUIRED_SECTIONS = ("## Goal", "## Tasks", "## Acceptance criteria")
+
+
+def lint_order(path: Path, root: Path) -> list[str]:
+    """Mechanical work-order validation. Returns problems (empty = clean).
+
+    Catches everything that would waste a night: unreadable frontmatter,
+    missing or malformed fields, empty required sections, repo paths that
+    don't resolve. Judgment calls are not lint's business.
+    """
+    problems: list[str] = []
+    fields = parse_order(path)
+    if not fields:
+        return [f"{path.name}: no readable frontmatter (--- block)"]
+    rel = str(path.relative_to(root)) if path.is_relative_to(root) else path.name
+
+    oid = fields.get("id", "")
+    if not oid:
+        problems.append("id: missing")
+    elif not re.fullmatch(r"\d{3}", oid):
+        problems.append(f"id: '{oid}' is not 3 digits (zero-pad, e.g. 007)")
+    if not fields.get("title"):
+        problems.append("title: missing")
+    status = fields.get("status", "")
+    if not status:
+        problems.append("status: missing")
+    elif status not in VALID_STATUS:
+        problems.append(f"status: '{status}' is not one of {', '.join(VALID_STATUS)}")
+    created = fields.get("created", "")
+    if not created:
+        problems.append("created: missing")
+    else:
+        try:
+            date.fromisoformat(created)
+        except ValueError:
+            problems.append(f"created: '{created}' is not YYYY-MM-DD")
+    branch = fields.get("branch")
+    if branch and re.search(r"\s", branch):
+        problems.append(f"branch: '{branch}' contains whitespace")
+    repo = fields.get("repo")
+    if repo and repo != "self" and not is_repo_url(repo):
+        if resolve_target(root, repo, update=False, soft=True) is None:
+            problems.append(f"repo: '{repo}' is not a git repository")
+
+    body: dict[str, list[str]] = {}
+    current = None
+    for line in path.read_text().splitlines():
+        if line.startswith("## "):
+            current = line[3:].strip()
+            body.setdefault(current, [])
+            continue
+        if current:
+            body[current].append(line)
+    for sec in REQUIRED_SECTIONS:
+        name = sec[3:]
+        if not [l for l in body.get(name, []) if l.strip()]:
+            problems.append(f"section '{name}': missing or empty")
+
+    return [f"{rel}: {p}" for p in problems]
+
+
 # ---------------------------------------------------------------- engines
 
 
@@ -82,21 +145,29 @@ def engine_bin(engine: str) -> str:
 
 def build_command(
     engine: str, binary: str, system_prompt: str, prompt: str,
-    order_id: str, session_ref: str | None,
+    session_id: str, session_ref: str | None, json_audit: bool = True,
 ) -> tuple[list[str], str | None]:
     """Build the headless command for a host agent.
 
-    Returns (argv, session_ref_to_remember). pi tracks sessions by a
-    deterministic id on its own; claude needs a uuid we keep per order.
+    session_id is the engine-side session handle for this run (pi: a
+    deterministic id; claude: a uuid we keep per order — pass session_ref to
+    resume). json_audit switches the raw JSON event capture on; run.py then
+    extracts the final text with extract_report().
+
+    Returns (argv, session_ref_to_remember).
     """
     if engine == "pi":
-        return ([binary, "--print", "--approve",
-                 "--append-system-prompt", system_prompt,
-                 "--session-id", f"wo-{order_id}",
-                 prompt], None)
+        argv = [binary, "--print", "--approve",
+                "--append-system-prompt", system_prompt,
+                "--session-id", session_id]
+        if json_audit:
+            argv += ["--mode", "json"]
+        return argv + [prompt], None
     if engine == "claude":
         argv = [binary, "--print", "--dangerously-skip-permissions",
                 "--append-system-prompt", system_prompt]
+        if json_audit:
+            argv += ["--output-format", "json"]
         if session_ref:
             argv += ["--resume", session_ref]
         else:
@@ -104,6 +175,40 @@ def build_command(
             argv += ["--session-id", session_ref]
         return argv + [prompt], session_ref
     die(f"unknown engine: {engine}", 2)
+
+
+def extract_report(engine: str, raw: str) -> str:
+    """Final assistant text from a JSON-audit capture; raw text as fallback."""
+    try:
+        if engine == "pi":
+            last = None
+            for line in raw.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                if rec.get("type") == "message_end":
+                    msg = rec.get("message") or {}
+                    if msg.get("role") == "assistant":
+                        last = msg
+            if last is None:
+                return raw
+            blocks = last.get("content")
+            if isinstance(blocks, list):
+                text = "".join(b.get("text", "") for b in blocks
+                               if isinstance(b, dict) and b.get("type") == "text")
+                return text.strip() or raw
+            if isinstance(blocks, str) and blocks.strip():
+                return blocks.strip()
+            return raw
+        if engine == "claude":
+            obj = json.loads(raw)
+            text = obj.get("result")
+            if isinstance(text, str) and text.strip():
+                return text
+    except (json.JSONDecodeError, ValueError, AttributeError):
+        pass
+    return raw
 
 
 def load_sessions(path: Path) -> dict:
