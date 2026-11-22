@@ -1,7 +1,7 @@
 ---
 id: 004
 title: Keep the formal greeting, remove greet-casual
-status: review
+status: done
 created: 2026-11-22
 branch: wo/004
 ---
