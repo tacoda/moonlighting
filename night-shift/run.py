@@ -124,7 +124,7 @@ class NightRun:
         with factory.Lock(self.root / "night-shift" / "locks",
                           repo.slug(), f"repo {repo.display()}"):
             started = time.monotonic()
-            rc, report, raw_events, run_err, secs = 0, "", "", 0
+            rc, report, raw_events, run_err, secs = 0, "", "", "", 0
             qa_rc, qa_raw, qa_report = None, "", ""
 
             if repo.is_dirty():
