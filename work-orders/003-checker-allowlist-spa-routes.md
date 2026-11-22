@@ -1,6 +1,6 @@
 ---
 id: 003
-title: Checker allowlist for SPA routes
+title: Checker allowlist for SPA routes and sibling project pages
 status: draft
 created: 2026-11-22
 branch: wo/003
@@ -9,38 +9,48 @@ repo: /home/linuxuser/repos/tacoda.github.io
 
 ## Goal
 
-`tools/check-links.py` can distinguish "broken" from "works via the SPA
-404-bounce", so its exit code tells the truth: everything it flags is a real
-dead end. The three client-side routes stay; the dead project pages stay
-flagged until the day shift decides their fate.
+`tools/check-links.py` can model the whole site namespace — this repo, the
+SPA's client-side routes, and sibling GitHub Pages project sites — so its
+exit code tells the truth: exit 0 means every internal link is accounted
+for, not that the internet was scanned.
+
+## Day shift decisions (recorded 2026-11-22)
+
+- `/resources`, `/about`, `/projects` are SPA client-side routes. They work
+  in production via the `404.html` bounce. Keep them; the checker learns to
+  allow them explicitly.
+- `/ghola/`, `/gauge/`, `/keystone/`, `/open-refinery/` (and `/sigma/`,
+  `/caml/`, `/otto/`, `/reins/` advertised in homepage JS) are **separate
+  GitHub project pages** — sibling repos publishing under
+  `tacoda.github.io/<repo>/`. They are not dead links; they live outside
+  this repo's tree, which is the only reason the checker flagged them.
+- No HTML, JS, or essay links may be changed by this order.
 
 ## Tasks
 
 - Add a repeatable `--allow <path>` flag to `tools/check-links.py`: allowed
-  targets are reported in a separate "allowed (SPA routes)" section but do
+  targets are listed in a separate "allowed" section of the output and do
   not affect the exit code.
-- Update the run convention (a short usage note in the script's docstring is
-  enough): `python3 tools/check-links.py --allow /resources --allow /about
-  --allow /projects`.
-- Do NOT touch any HTML, JS, or essay links. In particular: the homepage
-  project cards and the links to `/ghola/`, `/gauge/`, `/keystone/`,
-  `/open-refinery/` stay exactly as they are — the day shift has not decided
-  their fate (create / repoint / remove).
+- Update the script's docstring with the run convention and the two allowed
+  classes:
+  - SPA routes: `--allow /resources --allow /about --allow /projects`
+  - sibling project pages: `--allow /ghola/ --allow /gauge/ --allow
+    /keystone/ --allow /open-refinery/`
+- Do NOT touch any HTML, JS, or essay links.
 
 ## Constraints
 
 - Plain Python 3 stdlib, single file, still no dependencies.
 - Only `tools/check-links.py` may change.
-- Exit semantics: exit 0 only when no broken (non-allowed) internal links
-  remain; exit 1 otherwise, with the per-page list.
+- Exit semantics: exit 0 when every internal link is either resolved or
+  explicitly allowed; exit 1 otherwise, with the per-page list.
 
 ## Acceptance criteria
 
-- With the three `--allow` flags, the output's only remaining broken targets
-  are `/ghola/`, `/gauge/`, `/keystone/`, `/open-refinery/` — enumerated with
-  referring-page counts — and the exit code is 1 (they are genuinely dead).
-- Without flags, output and exit code are unchanged from today (exit 1, all
-  7 targets listed).
+- With all seven `--allow` paths, the checker exits 0 and its output lists
+  the allowed targets separately from resolved ones.
+- Without flags, behavior is unchanged from today: exit 1, all 7 targets
+  listed with referring-page counts.
 - Diff touches `tools/check-links.py` only.
 
 ## Night shift log
