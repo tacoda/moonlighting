@@ -1,7 +1,7 @@
 ---
 id: 003
 title: Checker allowlist for SPA routes and sibling project pages
-status: approved
+status: blocked
 created: 2026-11-22
 branch: wo/003
 repo: /home/linuxuser/repos/tacoda.github.io
@@ -60,3 +60,9 @@ for, not that the internet was scanned.
 ## Day shift decisions
 
 (humans decide here)
+
+### 2026-11-22 05:20 — night run (engine pi, target /home/linuxuser/repos/tacoda.github.io), exit 0 (0s)
+
+**Status** — BLOCKED (by the runner, before the agent started)
+
+target repo has uncommitted changes — the factory will not mix your WIP into a night branch
