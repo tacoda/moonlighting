@@ -58,11 +58,22 @@ def main() -> None:
         factory.die("squash-merge conflicts — resolve by hand in the target repo, "
                     f"or: git -C {t_display} merge --abort")
 
-    factory.set_status(order, "done")
     title = fields.get("title", oid)
-    factory.git(root, "add", "-A")
-    factory.git(root, "commit", "-q", "-m",
-                f"wo-{oid}: {title} (night shift; accepted by day shift)")
+    commit_msg = f"wo-{oid}: {title} (night shift; accepted by day shift)"
+    if target == root:
+        # one commit: merged code + order marked done, in the factory's own history
+        factory.set_status(order, "done")
+        factory.git(root, "add", "-A")
+        factory.git(root, "commit", "-q", "-m", commit_msg)
+    else:
+        # the work commits in the target repo (squash only stages it!);
+        # the factory records the decision separately
+        factory.git(target, "add", "-A")
+        factory.git(target, "commit", "-q", "-m", commit_msg)
+        factory.set_status(order, "done")
+        factory.git(root, "add", str(order))
+        factory.git(root, "commit", "-q", "-m", f"wo-{oid}: mark done (day shift)")
+
     print(f"accepted wo-{oid}: squash-merged {branch} into {base} in {t_display} "
           f"({ahead} commit(s)); order -> done")
     if target != root:
