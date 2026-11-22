@@ -1,7 +1,7 @@
 ---
 id: 001
 title: Two greetings, so the day can pick
-status: review
+status: done
 created: 2026-11-22
 branch: wo/001
 ---
