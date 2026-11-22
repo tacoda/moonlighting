@@ -127,7 +127,11 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
                           f"started)\n\n{blocked_note}")
                 print(f"wo-{order_id} BLOCKED: {blocked_note}")
             else:
-                bref = factory.base_ref(target)
+                # the factory's own repo branches from local main — night
+                # bookkeeping lands there; external clones start from their
+                # remote default
+                bref = (factory.local_main(target) if target == root
+                        else factory.base_ref(target))
                 exists = factory.git(target, "show-ref", "--verify", "--quiet",
                                      f"refs/heads/{order_branch}",
                                      check=False).returncode == 0
@@ -177,6 +181,10 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
                     factory.git(target, "commit", "-q", "-m",
                                 f"wo-{order_id}: night-shift WIP (auto-committed by runner)")
                     print(f"note: uncommitted work was auto-committed to {order_branch}")
+                # when the target is the factory itself, come back to main so
+                # the bookkeeping below commits where it belongs
+                if target == root:
+                    factory.git(root, "checkout", "-q", "main")
         finally:
             factory.release_lock(repo_lock)
 
