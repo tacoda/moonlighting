@@ -1,7 +1,7 @@
 ---
 id: 002
 title: Link audit and repair for tacoda.github.io
-status: review
+status: done
 created: 2026-11-22
 branch: wo/002
 repo: /home/linuxuser/repos/tacoda.github.io
