@@ -103,7 +103,10 @@ One script, one command, end-to-end.
 
 ### Phase 3 — Hardening  *once the loop is trusted*
 
-- [ ] **Isolation**: run each order in a `git worktree` so night runs can't collide or touch the main checkout (partially covered today: per-repo locks + separate factory clones)
+- [x] **Isolation** — pulled forward, live fire demanded it: every order runs
+  in a throwaway `git worktree` under `night-shift/worktrees/` (removed after
+  the run); working copies are never switched, so dirty targets no longer
+  block; parallel orders in one repo become possible.
 - [ ] **Auditability**: switch to `pi --mode json` and archive full event streams in `night-shift/logs/`, not just final text
 - [ ] **Validation**: `night-shift/lint-order.py` — reject malformed orders (missing id/status/tasks) before spending tokens
 - [ ] **Scheduling**: cron/systemd timer (or `at`) so the night shift literally starts itself; wake word: nothing — it just runs

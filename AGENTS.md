@@ -32,9 +32,9 @@ The night runner moves `approved → review` (or `→ blocked` when a run fails)
 - Work on the order's own branch (`wo/NNN`). Never merge, never push, never commit to `main`.
 - Never edit order files — not statuses, not logs, not decision sections.
   Those belong to humans and the runner. Reading orders is expected.
-- An order may target another repo (`repo:` field). The runner places you
-  inside that repo with your branch checked out — the same rules apply there:
-  never `main`, never push, never touch order files.
+- An order may target another repo (`repo:` field). The runner places you in
+  a throwaway git worktree of that repo with your branch checked out — the
+  same rules apply there: never `main`, never push, never touch order files.
 - Unclear order? Stop and report BLOCKED. Never guess.
 - Humans append answers under an order's *Day shift decisions* section and
   re-approve blocked orders; re-read the order file at the start of every run.

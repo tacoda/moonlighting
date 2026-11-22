@@ -39,6 +39,7 @@ night-shift/NIGHT-SHIFT.md   the night agent's operating manual
 night-shift/logs/       run reports and raw agent output (append-only)
 night-shift/sessions.json   engine session ids per order (claude engine)
 night-shift/locks/      run locks (gitignored)
+night-shift/worktrees/  per-run worktrees of target repos (gitignored, removed after each run)
 repos/                  target repos cloned from git URLs (gitignored)
 day-shift/status.py     factory floor report
 day-shift/accept.py     squash-merge a reviewed order into its target repo
@@ -59,8 +60,9 @@ AGENTS.md               standing instructions for any agent in this repo
   unknown, an order asks for variants, and the day shift decides among them.
 - Orders can target other repos: `repo:` frontmatter takes a path or a git
   URL (URLs are cloned under `repos/` and refreshed each night). Night work
-  happens on the order's branch inside the target repo; only the day shift
-  merges there, and the factory never pushes.
+  happens in a throwaway git worktree of the target repo — your working
+  copies are never switched or touched; only the day shift merges there, and
+  the factory never pushes.
 
 ## Engines
 

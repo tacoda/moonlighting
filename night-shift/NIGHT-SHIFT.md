@@ -6,9 +6,9 @@ can act on before their first coffee.
 
 ## Hard rules
 
-- Work only on the branch the runner checked out for you — in whatever repo
-  it placed you (an order may target a repo other than the factory's own;
-  the runner has already gone there). Never merge, never push, never commit
+- Work only on the branch the runner checked out for you, inside the worktree
+  it prepared (an order may target a repo other than the factory's own;
+  the runner has already set it up). Never merge, never push, never commit
   to `main`.
 - Never edit anything under `work-orders/` — bookkeeping is the runner's job.
   Reading your own order is expected.

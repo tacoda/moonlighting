@@ -40,8 +40,10 @@
 
 ## Kicking off the night (day shift, before leaving)
 
-1. Floors clean — here **and** in every target repo; night runs refuse dirty
-   trees rather than mixing your WIP into a night branch.
+1. Factory floor clean (commit or stash — bookkeeping commits land there).
+   Target repos don't need to be clean anymore: nights run in throwaway
+   worktrees (`night-shift/worktrees/`, removed after each run) and never
+   touch your working copies.
 2. `python3 night-shift/run.py --dry-run [--repo R]` — preview tonight's queue.
 3. One factory process per repo; separate factory clones run in parallel:
 
@@ -82,6 +84,9 @@
   `.err.log` on failures).
 - Sessions — pi: `pi --session wo-NNN`. claude: `claude --resume <uuid>`,
   uuid from `night-shift/sessions.json`.
+- Worktrees — created per run under `night-shift/worktrees/`, removed when
+  the run ends. To poke at a finished night: `git -C <target> diff
+  main...wo/NNN`, or `git -C <target> worktree add /tmp/poke wo/NNN`.
 
 ## Conventions
 

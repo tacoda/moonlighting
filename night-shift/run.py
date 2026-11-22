@@ -3,8 +3,9 @@
 
 Each order names its target repo via the `repo:` frontmatter field (default:
 this factory; a path or git URL points elsewhere — URLs are cloned under
-repos/). The agent works on the order's branch inside the target repo; the
-runner does all bookkeeping (status flips, logs) in the factory repo.
+repos/). The agent works on the order's branch inside a throwaway git
+worktree, so the target's own working copy is never switched or touched;
+the runner does all bookkeeping (status flips, logs) in the factory repo.
 
 Run one factory process per target repo — locks make double-running visible.
 See docs/runbook.md.
@@ -112,32 +113,36 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
 
         print(f"\n=== wo-{order_id} : {rel}  ->  {show(target)} ===")
 
-        # ---- the night's work happens inside the target repo, under a lock
+        # ---- the night runs in a throwaway worktree of the target repo,
+        # under a lock; the target's own working copy is never switched
         repo_lock = factory.acquire_lock(locks, factory.repo_slug(target),
                                          f"repo {show(target)}")
         rc, report, run_err, secs = 0, "", "", 0
-        blocked_note = ""
+        worktrees = root / "night-shift" / "worktrees"
+        wpath = worktrees / factory.repo_slug(target) / f"wo-{order_id}"
         try:
             started = time.monotonic()
 
             if not factory.clean_tree(target):
-                blocked_note = ("target repo has uncommitted changes — the factory "
-                                "will not mix your WIP into a night branch")
-                report = (f"**Status** — BLOCKED (by the runner, before the agent "
-                          f"started)\n\n{blocked_note}")
-                print(f"wo-{order_id} BLOCKED: {blocked_note}")
+                print(f"note: {show(target)} has uncommitted changes — "
+                      f"isolated from the night (it runs in a worktree)")
+            factory.git(target, "worktree", "prune")
+            if wpath.exists():
+                factory.die(f"worktree path already exists: {wpath} — remove it "
+                            f"before rerunning this order")
+            bref = factory.base_ref(root, target)
+            branch_exists = factory.git(target, "show-ref", "--verify", "--quiet",
+                                        f"refs/heads/{order_branch}",
+                                        check=False).returncode == 0
+            if branch_exists:
+                factory.git(target, "worktree", "add", str(wpath), order_branch)
+                print(f"resuming branch {order_branch} in a worktree")
             else:
-                bref = factory.base_ref(root, target)
-                exists = factory.git(target, "show-ref", "--verify", "--quiet",
-                                     f"refs/heads/{order_branch}",
-                                     check=False).returncode == 0
-                if exists:
-                    factory.git(target, "checkout", "-q", order_branch)
-                    print(f"resuming branch {order_branch}")
-                else:
-                    factory.git(target, "checkout", "-q", "-b", order_branch, bref)
-                    print(f"new branch {order_branch} (from {bref})")
+                factory.git(target, "worktree", "add", "-b", order_branch,
+                            str(wpath), bref)
+                print(f"new branch {order_branch} (from {bref}) in a worktree")
 
+            try:
                 prompt = (f"Execute work order {order_id} now, following the "
                           f"night-shift manual in your system prompt.\n\n"
                           f"# Work order {order_id}\n\n{order.read_text()}")
@@ -158,7 +163,7 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
                     err_path = Path(tmp) / "err.log"
                     try:
                         with out_path.open("w") as out, err_path.open("w") as err:
-                            proc = subprocess.run(argv, cwd=target, stdout=out,
+                            proc = subprocess.run(argv, cwd=wpath, stdout=out,
                                                   stderr=err, timeout=timeout_secs)
                             rc = proc.returncode
                     except subprocess.TimeoutExpired:
@@ -172,20 +177,22 @@ def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> 
                 secs = int(time.monotonic() - started)
 
                 # the agent must leave a committed branch; sweep up what it forgot
-                if not factory.clean_tree(target):
-                    factory.git(target, "add", "-A")
-                    factory.git(target, "commit", "-q", "-m",
+                if not factory.clean_tree(wpath):
+                    factory.git(wpath, "add", "-A")
+                    factory.git(wpath, "commit", "-q", "-m",
                                 f"wo-{order_id}: night-shift WIP (auto-committed by runner)")
                     print(f"note: uncommitted work was auto-committed to {order_branch}")
-                # when the target is the factory itself, come back to main so
-                # the bookkeeping below commits where it belongs
-                if target == root:
-                    factory.git(root, "checkout", "-q", "main")
+            finally:
+                # the worktree is disposable; the branch keeps everything.
+                # --force: ignored artifacts (node_modules etc.) are not source
+                r = factory.git(target, "worktree", "remove", str(wpath), check=False)
+                if r.returncode != 0:
+                    factory.git(target, "worktree", "remove", "--force", str(wpath))
         finally:
             factory.release_lock(repo_lock)
 
-        # ---- bookkeeping: factory repo only; the target stays on the order branch
-        new_status = "blocked" if (rc != 0 or blocked_note) else "review"
+        # ---- bookkeeping: factory repo only; the branch holds the night's work
+        new_status = "review" if rc == 0 else "blocked"
         outfile = logs / f"{today}-wo-{order_id}.out.md"
         errfile = logs / f"{today}-wo-{order_id}.err.log"
         outfile.write_text(report)
