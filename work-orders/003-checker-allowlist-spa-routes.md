@@ -1,7 +1,7 @@
 ---
 id: 003
 title: Checker allowlist for SPA routes and sibling project pages
-status: blocked
+status: approved
 created: 2026-11-22
 branch: wo/003
 repo: /home/linuxuser/repos/tacoda.github.io
@@ -66,3 +66,10 @@ for, not that the internet was scanned.
 **Status** — BLOCKED (by the runner, before the agent started)
 
 target repo has uncommitted changes — the factory will not mix your WIP into a night branch
+
+### 2026-11-22 (day shift) — blocked-run answer
+
+Block cause: accept.py had left wo-002's squash-merge staged-but-uncommitted
+in the target repo; the dirty-tree guardrail correctly refused to start.
+Bug fixed (accept.py now commits in the target repo); wo-002 landing
+completed. Re-approved for tonight.
