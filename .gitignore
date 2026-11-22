@@ -3,3 +3,4 @@ __pycache__/
 repos/
 night-shift/locks/
 night-shift/worktrees/
+night-shift/logs/cron.log
