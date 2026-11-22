@@ -11,6 +11,7 @@ import argparse
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -98,17 +99,27 @@ def main() -> None:
             f"Execute work order {order_id} now, following the night-shift manual.",
         ]
 
+        # pi's output is captured outside the working tree: anything written
+        # here would be swept onto the order branch by the WIP commit below
+        # and vanish with the checkout back to main.
         rc = 0
-        try:
-            with outfile.open("w") as out, errfile.open("w") as err:
-                proc = subprocess.run(cmd, cwd=root, stdout=out, stderr=err,
-                                      timeout=timeout_secs)
-                rc = proc.returncode
-        except subprocess.TimeoutExpired:
-            rc = 124
-        except FileNotFoundError:
-            factory.git(root, "checkout", "-q", "main")
-            factory.die(f"pi executable not found: {pi_bin} (set PI_BIN)", 127)
+        report = ""
+        run_err = ""
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "out.md"
+            err_path = Path(tmp) / "err.log"
+            try:
+                with out_path.open("w") as out, err_path.open("w") as err:
+                    proc = subprocess.run(cmd, cwd=root, stdout=out, stderr=err,
+                                          timeout=timeout_secs)
+                    rc = proc.returncode
+            except subprocess.TimeoutExpired:
+                rc = 124
+            except FileNotFoundError:
+                factory.git(root, "checkout", "-q", "main")
+                factory.die(f"pi executable not found: {pi_bin} (set PI_BIN)", 127)
+            report = out_path.read_text()
+            run_err = err_path.read_text()
 
         secs = int(time.monotonic() - started)
 
@@ -123,9 +134,12 @@ def main() -> None:
 
         new_status = "review" if rc == 0 else "blocked"
 
+        outfile.write_text(report)
+        errfile.write_text(run_err)
+
         with order.open("a") as f:
             f.write(f"\n### {datetime.now():%Y-%m-%d %H:%M} — night run, pi exit {rc} ({secs}s)\n\n")
-            f.write(outfile.read_text())
+            f.write(report)
             if rc != 0:
                 f.write(f"\n> run FAILED (exit {rc}). stderr: {errfile.relative_to(root)}\n")
 
