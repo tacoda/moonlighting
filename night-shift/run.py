@@ -143,17 +143,17 @@ def main() -> None:
             if rc != 0:
                 f.write(f"\n> run FAILED (exit {rc}). stderr: {errfile.relative_to(root)}\n")
 
+        with run_log.open("a") as f:
+            f.write(f"\n## {datetime.now():%H:%M} run\n")
+            f.write(f"- wo-{order_id} ({rel}): {new_status}, pi exit {rc}, {secs}s — "
+                    f"report in order file; raw: {outfile.relative_to(root)}\n")
+
         factory.set_status(order, new_status)
         factory.git(root, "add", str(rel), "night-shift/logs")
         factory.git(root, "commit", "-q", "-m",
                     f"night-shift: wo-{order_id} -> {new_status} (exit {rc}, {secs}s)")
 
         print(f"wo-{order_id} -> {new_status} ({secs // 60}m{secs % 60:02d}s)")
-
-        with run_log.open("a") as f:
-            f.write(f"\n## {datetime.now():%H:%M} run\n")
-            f.write(f"- wo-{order_id} ({rel}): {new_status}, pi exit {rc}, {secs}s — "
-                    f"report in order file; raw: {outfile.relative_to(root)}\n")
 
         ran += 1
         if rc != 0:
