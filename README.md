@@ -36,7 +36,10 @@ and the morning starts with another:
 work-orders/            one markdown file per unit of work (NNN-title.md)
 night-shift/run.py      the night runner (headless pi or claude)
 night-shift/NIGHT-SHIFT.md   the night agent's operating manual
-night-shift/logs/       run reports and raw agent output (append-only)
+night-shift/QA-SHIFT.md      the QA pre-shift reviewer's manual
+night-shift/lint-order.py    validate work orders before spending tokens
+night-shift/schedule.py      install/remove the nightly cron entry
+night-shift/logs/       run reports, QA packets, raw agent event streams (append-only)
 night-shift/sessions.json   engine session ids per order (claude engine)
 night-shift/locks/      run locks (gitignored)
 night-shift/worktrees/  per-run worktrees of target repos (gitignored, removed after each run)
@@ -76,6 +79,15 @@ Both hosts run the same work orders through the same flow:
 Pick per run with `--engine` (or `FACTORY_ENGINE`). Both run under the nWave
 tool-call guard (`nwave-ai mode all`); agent commits carry nWave attribution.
 
+Every run is double-checked by default:
+
+- **JSON audit** — the engine's full event stream is archived to
+  `night-shift/logs/*.events.jsonl`; the final report is extracted from it.
+  Opt out with `FACTORY_JSON_AUDIT=0`.
+- **QA pre-shift** — a second agent pass reviews the night's diff against the
+  acceptance criteria and writes a verdict (SHIP/BLOCK/UNSURE) into the order
+  file, so the morning decision takes minutes. Opt out with `FACTORY_QA=0`.
+
 ## Several factories, several repos
 
 One factory process per target repo; processes run in parallel:
@@ -87,7 +99,16 @@ python3 night-shift/run.py --repo git@github.com:acme/api.git --engine claude
 
 Locks make collisions visible: one night per target repo, one night per
 factory checkout. For true parallel nights, clone this factory once per repo
-and run one process in each. The morning is still one command:
+and run one process in each:
+
+```bash
+git clone ~/repos/moonlighting ~/factories/shop-factory
+cd ~/factories/shop-factory
+python3 night-shift/run.py --repo ~/repos/shop
+# in another terminal, another clone, another repo, same time — no conflict
+```
+
+The morning is still one command per factory:
 
 ```bash
 python3 day-shift/status.py
@@ -100,6 +121,7 @@ python3 day-shift/status.py
 - git; Python 3.9+ (stdlib only — nothing to pip install)
 - one or both host CLIs: [pi](https://pi.dev) (`pi` → `/login` once) and/or
   Claude Code (`claude` installed and logged in)
+- for self-running nights: `crontab` (install with `night-shift/schedule.py install`)
 
 ## First night
 

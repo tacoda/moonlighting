@@ -15,6 +15,9 @@
 4. Make an initial commit: the night runner needs a clean tree on `main` with
    at least one commit.
 5. Smoke-test: `python3 night-shift/run.py --dry-run`
+6. When the loop is trusted, let nights start themselves:
+   `python3 night-shift/schedule.py install` (fires nightly, harmlessly no-ops
+   on an empty queue; `remove` undoes it, `status` shows the entry).
 
 > The runner invokes pi with `--approve`, which trusts project-local
 > configuration so the night can run unattended. Only run the night shift in
@@ -23,7 +26,12 @@
 ## Writing orders (day shift)
 
 - `cp docs/work-order-template.md work-orders/00N-short-title.md` — zero-pad
-  ids to 3 digits; one order = one branch = one review.
+  ids to 3 digits; one order = one branch = one review. Ids are never reused,
+  even after `done`.
+- Before approving: `python3 night-shift/lint-order.py` — it catches
+  malformed orders (missing fields, empty sections, bad repo paths) before
+  they spend tokens. The night runner also lint-blocks approved orders
+  automatically.
 - Target another repo with the `repo:` frontmatter field: a path
   (`repo: ~/repos/shop`) or a git URL (`repo: https://github.com/acme/api.git`,
   cloned under `repos/` and refreshed each night). Omit it to target this
@@ -62,8 +70,9 @@
 
 1. `python3 day-shift/status.py` (all repos; filter with `--repo`)
 2. For each `review` order:
-   - Read the agent's report in the order file (status / what / verified /
-     follow-ups).
+   - Read the **QA pre-shift verdict** (SHIP/BLOCK/UNSURE) and the agent's
+     report in the order file — the QA packet's criteria table is your
+     shortcut; spot-check what it flags.
    - Review the branch **in its target repo**:
      `git -C <target> diff main...wo/NNN` — run the result if warranted.
    - Good → `python3 day-shift/accept.py NNN` (squash-merges into the target's
@@ -79,9 +88,12 @@
 
 ## Forensics
 
-- Order file — every run's report, oldest first.
+- Order file — every run's report plus the QA pre-shift verdict.
 - Raw agent output — `night-shift/logs/YYYY-MM-DD-wo-NNN.out.md` (+
   `.err.log` on failures).
+- Full event streams — `night-shift/logs/*.events.jsonl` and `*.qa.jsonl`:
+  every tool call, every token, archived. This is the factory's flight
+  recorder.
 - Sessions — pi: `pi --session wo-NNN`. claude: `claude --resume <uuid>`,
   uuid from `night-shift/sessions.json`.
 - Worktrees — created per run under `night-shift/worktrees/`, removed when

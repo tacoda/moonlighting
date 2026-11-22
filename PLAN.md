@@ -107,20 +107,24 @@ One script, one command, end-to-end.
   in a throwaway `git worktree` under `night-shift/worktrees/` (removed after
   the run); working copies are never switched, so dirty targets no longer
   block; parallel orders in one repo become possible.
-- [ ] **Auditability**: switch to `pi --mode json` and archive full event streams in `night-shift/logs/`, not just final text
-- [ ] **Validation**: `night-shift/lint-order.py` — reject malformed orders (missing id/status/tasks) before spending tokens
-- [ ] **Scheduling**: cron/systemd timer (or `at`) so the night shift literally starts itself; wake word: nothing — it just runs
+- [x] **Auditability** — every run archives the engine's full JSON event stream (`night-shift/logs/*.events.jsonl`, `*.qa.jsonl`); the final report is extracted from it
+- [x] **Validation** — `night-shift/lint-order.py` for the day shift; the runner lint-blocks approved malformed orders before spending tokens
+- [x] **Scheduling** — `night-shift/schedule.py install|remove|status`; nightly cron, harmlessly no-ops on an empty queue
 - [~] **Budget rails**: per-order time cap done (`NIGHT_TIMEOUT_SECS`, default 7200s → killed and marked blocked); token cap not yet
 
 ### Phase 4 — Expansion  *only if the loop proves out*
 
-- [ ] **QA pre-shift**: a second pi pass that reviews the night's diff and writes a review packet, so the morning human-review takes minutes
+The loop proved out. Pulled forward and shipped:
+
+- [x] **QA pre-shift** — a second agent pass reviews every night's diff and writes a SHIP/BLOCK/UNSURE verdict into the order file (opt out: `FACTORY_QA=0`)
+- [x] **Multi-repo** — orders name a target repo (`repo:` path or git URL, cloned under `repos/`); day shift merges and pushes target repos themselves
+- [x] **Parallel shifts** — one factory process per repo, each in its own clone, launched concurrently; worktree isolation + locks make it safe (proven live)
+- [x] **Claude Code engine** — same flow, `--engine claude`, sessions tracked per order
+
+Still open:
+
 - [ ] **Skills** for recurring job types ("add a CLI command", "write a migration") loaded via `pi --skill`
 - [ ] **Prompt templates** for authoring work orders consistently
-- [x] **Multi-repo** — pulled forward into Phase 1: orders name a target repo
-  (`repo:` path or git URL, cloned under `repos/`); one factory process per
-  repo, lock-guarded; day shift merges and pushes target repos themselves.
-- [ ] **Parallel shifts**: multiple isolated worktrees running different orders concurrently
 
 ## Scope discipline (what "minimal" means)
 
