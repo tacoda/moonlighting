@@ -125,7 +125,7 @@ In scope for now: **Phases 0–2 only.** Plain Python (stdlib) + markdown.
 Hosts: pi and Claude Code (engine per run), both under the nWave guard.
 Orders may target external repos; one factory process per repo. One order per night run by default.
 
-Explicitly out of scope until Phase 3+: worktrees, JSON event archives, cron, budgets, multi-repo, parallelism. Every phase must leave the factory usable on its own — no half-built scaffolding.
+Explicitly out of scope until Phase 3+: worktrees, JSON event archives, cron, token budgets, parallel orders within one repo. Every phase must leave the factory usable on its own — no half-built scaffolding.
 
 ## Risks & guardrails (baked in from Phase 1)
 
