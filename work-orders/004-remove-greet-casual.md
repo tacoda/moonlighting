@@ -1,7 +1,7 @@
 ---
 id: 004
 title: Keep the formal greeting, remove greet-casual
-status: approved
+status: review
 created: 2026-11-22
 branch: wo/004
 ---
@@ -35,3 +35,36 @@ recommendation, accepted during review).
 ## Day shift decisions
 
 (humans decide here)
+
+### 2026-11-22 05:33 — night run (engine pi, target this factory), exit 0 (26s)
+
+All acceptance criteria verified. Final report:
+
+---
+
+## Status
+
+**DONE**
+
+## What I did
+
+Deleted `bin/greet-casual` via `git rm` and committed it on `wo/004`, closing out wo-001's accepted recommendation. Nothing else was touched — `bin/greet-formal` is byte-identical (sha256 unchanged before and after).
+
+## Files changed
+
+- `bin/greet-casual` — deleted (commit `363f5fe`)
+
+## How I verified
+
+| Acceptance criterion | Command | Result |
+|---|---|---|
+| `greet-formal` exits 0, exact output | `./bin/greet-formal` compared string-equal to `Good evening. The factory is operational.`, exit code 0 | PASS |
+| `greet-formal` byte-identical | `sha256sum bin/greet-formal` before and after | Unchanged: `5f8771ed…a3be9` |
+| `greet-casual` gone | `ls bin/` + existence check | Only `greet-formal` remains |
+| `git diff main` shows only that deletion | `git diff main --name-status` | Single line: `D bin/greet-casual` |
+
+Working tree is clean; branch `wo/004` has exactly one commit ahead of `main`. No order files, README, or anything outside `bin/` modified.
+
+## Questions / follow-ups
+
+None.
