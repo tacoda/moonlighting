@@ -49,6 +49,7 @@ day-shift/accept.py     squash-merge a reviewed order into its target repo
 factory.py              shared helpers for the factory scripts
 docs/work-order-template.md  how orders are written
 docs/runbook.md         shift checklists (morning, handover, forensics)
+docs/flow.md            mermaid diagrams: the day/night work flow
 PLAN.md                 phased roadmap
 AGENTS.md               standing instructions for any agent in this repo
 ```
