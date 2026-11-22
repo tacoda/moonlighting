@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""day-shift/accept.py NNN — squash-merge order NNN into main and mark it done."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import factory  # noqa: E402
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        factory.die("usage: day-shift/accept.py NNN", 2)
+    oid = sys.argv[1]
+
+    root = factory.repo_root()
+    matches = sorted((root / "work-orders").glob(f"{oid}*.md"))
+    if len(matches) != 1:
+        factory.die(f"expected exactly one work-orders/{oid}*.md, found {len(matches)}")
+    order = matches[0]
+
+    fields = factory.parse_order(order)
+    status = fields.get("status", "")
+    if status != "review":
+        factory.die(f"{oid} is '{status}', not 'review' — decide blocked/draft "
+                    f"orders in the order file first")
+    branch = fields.get("branch") or f"wo/{oid}"
+    if factory.git(root, "show-ref", "--verify", "--quiet",
+                   f"refs/heads/{branch}", check=False).returncode != 0:
+        factory.die(f"branch {branch} does not exist")
+    ahead = int(factory.git_out(root, "rev-list", "--count", f"main..{branch}") or "0")
+    if ahead == 0:
+        factory.die(f"{branch} has no commits ahead of main — nothing to merge")
+    if not factory.clean_tree(root):
+        factory.die("working tree must be clean")
+
+    factory.git(root, "checkout", "-q", "main")
+    merge = factory.git(root, "merge", "--squash", branch, check=False)
+    if merge.returncode != 0:
+        print(merge.stdout + merge.stderr, file=sys.stderr)
+        factory.die("squash-merge conflicts — resolve by hand or: git merge --abort")
+
+    factory.set_status(order, "done")
+    title = fields.get("title", oid)
+    factory.git(root, "add", "-A")
+    factory.git(root, "commit", "-q", "-m",
+                f"wo-{oid}: {title} (night shift; accepted by day shift)")
+    print(f"accepted wo-{oid}: merged {branch} into main "
+          f"({ahead} commit(s) squashed), status -> done")
+    print(f"optional cleanup: git branch -D {branch}")
+
+
+if __name__ == "__main__":
+    main()
