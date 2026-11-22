@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""day-shift/accept.py NNN — squash-merge order NNN into main and mark it done."""
+"""day-shift/accept.py NNN — squash-merge order NNN into its target repo, mark done."""
 
 from __future__ import annotations
 
@@ -26,30 +26,48 @@ def main() -> None:
     if status != "review":
         factory.die(f"{oid} is '{status}', not 'review' — decide blocked/draft "
                     f"orders in the order file first")
-    branch = fields.get("branch") or f"wo/{oid}"
-    if factory.git(root, "show-ref", "--verify", "--quiet",
-                   f"refs/heads/{branch}", check=False).returncode != 0:
-        factory.die(f"branch {branch} does not exist")
-    ahead = int(factory.git_out(root, "rev-list", "--count", f"main..{branch}") or "0")
-    if ahead == 0:
-        factory.die(f"{branch} has no commits ahead of main — nothing to merge")
-    if not factory.clean_tree(root):
-        factory.die("working tree must be clean")
 
-    factory.git(root, "checkout", "-q", "main")
-    merge = factory.git(root, "merge", "--squash", branch, check=False)
+    target = factory.resolve_target(root, fields.get("repo"))
+    branch = fields.get("branch") or f"wo/{oid}"
+    t_display = factory.display_target(root, target)
+
+    # target repo: must be clean, branch must carry work
+    if not factory.clean_tree(target):
+        factory.die(f"target repo is dirty: {t_display} — commit or stash there first")
+    if factory.git(target, "show-ref", "--verify", "--quiet",
+                   f"refs/heads/{branch}", check=False).returncode != 0:
+        factory.die(f"branch {branch} does not exist in {t_display}")
+    base = factory.local_main(target)
+    ahead = int(factory.git_out(target, "rev-list", "--count",
+                                f"{base}..{branch}") or "0")
+    if ahead == 0:
+        factory.die(f"{branch} has no commits ahead of {base} in {t_display} — "
+                    f"nothing to merge")
+
+    # factory repo: the bookkeeping commit happens here
+    fbranch = factory.git_out(root, "branch", "--show-current")
+    if fbranch != "main":
+        factory.die(f"run accepts from the factory's main (you are on: {fbranch})")
+    if not factory.clean_tree(root):
+        factory.die("factory working tree must be clean")
+
+    factory.git(target, "checkout", "-q", base)
+    merge = factory.git(target, "merge", "--squash", branch, check=False)
     if merge.returncode != 0:
         print(merge.stdout + merge.stderr, file=sys.stderr)
-        factory.die("squash-merge conflicts — resolve by hand or: git merge --abort")
+        factory.die("squash-merge conflicts — resolve by hand in the target repo, "
+                    f"or: git -C {t_display} merge --abort")
 
     factory.set_status(order, "done")
     title = fields.get("title", oid)
     factory.git(root, "add", "-A")
     factory.git(root, "commit", "-q", "-m",
                 f"wo-{oid}: {title} (night shift; accepted by day shift)")
-    print(f"accepted wo-{oid}: merged {branch} into main "
-          f"({ahead} commit(s) squashed), status -> done")
-    print(f"optional cleanup: git branch -D {branch}")
+    print(f"accepted wo-{oid}: squash-merged {branch} into {base} in {t_display} "
+          f"({ahead} commit(s)); order -> done")
+    if target != root:
+        print(f"remember: push {t_display} yourself — the factory never pushes")
+    print(f"optional cleanup: git -C {t_display} branch -D {branch}")
 
 
 if __name__ == "__main__":

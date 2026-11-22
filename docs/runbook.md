@@ -2,11 +2,19 @@
 
 ## First-time setup (once)
 
-1. Install pi: `curl -fsSL https://pi.dev/install.sh | sh`
-2. Run `pi` in this repo → `/login` → approve the project-trust prompt.
-3. Make an initial commit: the night runner needs a clean tree on `main` with
+1. Install pi: `curl -fsSL https://pi.dev/install.sh | sh` (and/or the Claude
+   Code CLI, if you want the `claude` engine).
+2. Log the host(s) in: `pi` → `/login`; `claude` login on first run.
+3. Put both hosts under the nWave guard — install once, then activate
+   globally (revert with `nwave-ai mode opt-in`):
+
+       nwave-ai install --platform pi
+       nwave-ai install --platform claude-code
+       nwave-ai mode all
+
+4. Make an initial commit: the night runner needs a clean tree on `main` with
    at least one commit.
-4. Smoke-test: `python3 night-shift/run.py --dry-run`
+5. Smoke-test: `python3 night-shift/run.py --dry-run`
 
 > The runner invokes pi with `--approve`, which trusts project-local
 > configuration so the night can run unattended. Only run the night shift in
@@ -16,6 +24,10 @@
 
 - `cp docs/work-order-template.md work-orders/00N-short-title.md` — zero-pad
   ids to 3 digits; one order = one branch = one review.
+- Target another repo with the `repo:` frontmatter field: a path
+  (`repo: ~/repos/shop`) or a git URL (`repo: https://github.com/acme/api.git`,
+  cloned under `repos/` and refreshed each night). Omit it to target this
+  factory itself.
 - An order should be decidable in one morning. Big unknown? Order prototypes
   or variants and decide among them in the morning — the night produces
   options, the day produces answers.
@@ -28,24 +40,36 @@
 
 ## Kicking off the night (day shift, before leaving)
 
-1. Floor clean? Commit or stash — night runs refuse a dirty tree.
-2. `python3 night-shift/run.py --dry-run` — preview tonight's queue.
-3. `python3 night-shift/run.py` (one order) or `--max-orders N` for a longer night.
-4. An order that runs past `NIGHT_TIMEOUT_SECS` (default 7200s) is killed and
-   marked blocked.
+1. Floors clean — here **and** in every target repo; night runs refuse dirty
+   trees rather than mixing your WIP into a night branch.
+2. `python3 night-shift/run.py --dry-run [--repo R]` — preview tonight's queue.
+3. One factory process per repo; separate factory clones run in parallel:
+
+       python3 night-shift/run.py --repo ~/repos/shop
+       python3 night-shift/run.py --repo git@github.com:acme/api.git --engine claude
+
+   `--repo` takes a path or URL and only runs that repo's orders; the default
+   works this factory's own queue. Pick the host with `--engine pi|claude`.
+4. `--max-orders N` for a longer night; an order that runs past
+   `NIGHT_TIMEOUT_SECS` (default 7200s) is killed and marked blocked.
+5. Locks: a second process on the same repo or the same factory checkout
+   refuses to start instead of racing you. A lock left by a dead process is
+   broken automatically.
 
 ## Morning checklist (day shift)
 
-1. `python3 day-shift/status.py`
+1. `python3 day-shift/status.py` (all repos; filter with `--repo`)
 2. For each `review` order:
    - Read the agent's report in the order file (status / what / verified /
      follow-ups).
-   - `git diff main...wo/NNN` — run the result yourself if warranted.
-   - Good → `python3 day-shift/accept.py NNN` (squash-merges into main,
-     marks done).
+   - Review the branch **in its target repo**:
+     `git -C <target> diff main...wo/NNN` — run the result if warranted.
+   - Good → `python3 day-shift/accept.py NNN` (squash-merges into the target's
+     main, marks done). Push the target repo yourself — the factory never
+     pushes.
    - Not there yet → set `blocked`, append your question under
-     *Day shift decisions*; tonight's rerun continues the same pi session,
-     so the agent remembers its own work.
+     *Day shift decisions*; tonight's rerun continues the same agent session,
+     so it remembers its own work.
    - Wrong direction → `rejected`, with a reason.
 3. For each `blocked`: answer the agent's question in the order file, flip to
    `approved`.
@@ -54,15 +78,16 @@
 ## Forensics
 
 - Order file — every run's report, oldest first.
-- Raw pi output — `night-shift/logs/YYYY-MM-DD-wo-NNN.out.md` (+ `.err.log`
-  on failures).
-- Full conversation — `pi --session wo-NNN` reopens the exact night session
-  interactively.
+- Raw agent output — `night-shift/logs/YYYY-MM-DD-wo-NNN.out.md` (+
+  `.err.log` on failures).
+- Sessions — pi: `pi --session wo-NNN`. claude: `claude --resume <uuid>`,
+  uuid from `night-shift/sessions.json`.
 
 ## Conventions
 
 - `main` moves by day-shift squash-merges only — plus night bookkeeping
-  commits (status flips, logs), which never contain code.
+  commits (status flips, logs), which never contain code. Same for every
+  target repo's main.
 - Agents never edit `work-orders/`; the runner appends reports and flips
   statuses.
 - Logs are append-only. They are the factory's memory; never delete them.

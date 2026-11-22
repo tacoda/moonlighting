@@ -33,3 +33,13 @@ Runnable checks the agent can verify itself before reporting done —
 ## Day shift decisions
 
 (humans record decisions, answers to blocked questions, and re-approvals here)
+
+<!--
+Frontmatter fields:
+  id      zero-padded, 3 digits (001, 002, ...)
+  status  draft | approved | review | blocked | done | rejected
+  branch  optional; defaults to wo/<id>
+  repo    optional; default: this factory. A path or a git URL —
+          URLs are cloned under repos/ and refreshed each night.
+-->
+

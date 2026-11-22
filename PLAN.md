@@ -109,12 +109,16 @@ One script, one command, end-to-end.
 - [ ] **QA pre-shift**: a second pi pass that reviews the night's diff and writes a review packet, so the morning human-review takes minutes
 - [ ] **Skills** for recurring job types ("add a CLI command", "write a migration") loaded via `pi --skill`
 - [ ] **Prompt templates** for authoring work orders consistently
-- [ ] **Multi-repo**: orders that target external repos (runner cds into a target repo per order)
+- [x] **Multi-repo** — pulled forward into Phase 1: orders name a target repo
+  (`repo:` path or git URL, cloned under `repos/`); one factory process per
+  repo, lock-guarded; day shift merges and pushes target repos themselves.
 - [ ] **Parallel shifts**: multiple isolated worktrees running different orders concurrently
 
 ## Scope discipline (what "minimal" means)
 
-In scope for now: **Phases 0–2 only.** Plain Python (stdlib) + markdown + pi CLI. One order per night run by default.
+In scope for now: **Phases 0–2 only.** Plain Python (stdlib) + markdown.
+Hosts: pi and Claude Code (engine per run), both under the nWave guard.
+Orders may target external repos; one factory process per repo. One order per night run by default.
 
 Explicitly out of scope until Phase 3+: worktrees, JSON event archives, cron, budgets, multi-repo, parallelism. Every phase must leave the factory usable on its own — no half-built scaffolding.
 

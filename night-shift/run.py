@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""night-shift/run.py — execute approved work orders with pi, headless.
+"""night-shift/run.py — execute approved work orders headlessly.
 
-Code lands on the order's branch; the day shift merges. Bookkeeping (status
-flips, logs) is committed straight to main. See docs/runbook.md.
+Each order names its target repo via the `repo:` frontmatter field (default:
+this factory; a path or git URL points elsewhere — URLs are cloned under
+repos/). The agent works on the order's branch inside the target repo; the
+runner does all bookkeeping (status flips, logs) in the factory repo.
+
+Run one factory process per target repo — locks make double-running visible.
+See docs/runbook.md.
 """
 
 from __future__ import annotations
@@ -22,13 +27,17 @@ import factory  # noqa: E402
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Execute approved work orders (night shift).")
+    ap.add_argument("--engine", default=os.environ.get("FACTORY_ENGINE", "pi"),
+                    help="host agent: pi (default) or claude; env FACTORY_ENGINE")
+    ap.add_argument("--repo", default=None, metavar="REPO",
+                    help="only process orders for this repo (path or git URL)")
     ap.add_argument("--max-orders", type=int, default=1,
                     help="run at most N orders (default: 1)")
     ap.add_argument("--dry-run", action="store_true",
                     help="list what would run, change nothing")
     args = ap.parse_args()
 
-    pi_bin = os.environ.get("PI_BIN", "pi")
+    binary = factory.engine_bin(args.engine)
     timeout_secs = int(os.environ.get("NIGHT_TIMEOUT_SECS", "7200"))
 
     root = factory.repo_root()
@@ -43,18 +52,42 @@ def main() -> None:
     if not factory.clean_tree(root):
         factory.die("working tree must be clean before the night shift (commit or stash)")
 
+    locks = root / "night-shift" / "locks"
+    factory_lock = factory.acquire_lock(locks, "factory", f"factory checkout {root}")
+    try:
+        run_night(root, args, binary, timeout_secs, locks)
+    finally:
+        factory.release_lock(factory_lock)
+
+
+def run_night(root: Path, args, binary: str, timeout_secs: int, locks: Path) -> None:
+    def show(target: Path | None) -> str:
+        if target is None:
+            return "?"
+        return factory.display_target(root, target)
+
+    filter_target = None
+    if args.repo:
+        filter_target = factory.resolve_target(root, args.repo)
+
     queue = []
     for order in sorted((root / "work-orders").glob("*.md")):
-        if factory.parse_order(order).get("status") == "approved":
-            queue.append(order)
+        fields = factory.parse_order(order)
+        if fields.get("status") != "approved":
+            continue
+        target = factory.resolve_target(root, fields.get("repo"))
+        if filter_target is not None and target != filter_target:
+            continue
+        queue.append((order, fields, target))
 
     if not queue:
-        print("nothing approved — nothing to do tonight.")
+        print("nothing approved" + (" for this repo" if filter_target else "")
+              + " — nothing to do tonight.")
         return
 
-    print("night shift queue:")
-    for order in queue:
-        print(f"  {order.relative_to(root)}")
+    print(f"night shift queue (engine: {args.engine}):")
+    for order, fields, target in queue:
+        print(f"  {order.relative_to(root)}  ->  {show(target)}")
     if args.dry_run:
         return
 
@@ -62,107 +95,130 @@ def main() -> None:
     logs.mkdir(parents=True, exist_ok=True)
     today = f"{datetime.now():%Y-%m-%d}"
     run_log = logs / f"{today}.md"
+    sessions_file = root / "night-shift" / "sessions.json"
+    system_prompt = (root / "night-shift" / "NIGHT-SHIFT.md").read_text()
 
     ran = 0
     failed: str | None = None
-    for order in queue:
+    for order, fields, target in queue:
         if ran >= args.max_orders:
             break
         rel = order.relative_to(root)
-        fields = factory.parse_order(order)
         order_id = fields.get("id", "")
         if not order_id:
             print(f"skip {rel}: no id in frontmatter")
             continue
         order_branch = fields.get("branch") or f"wo/{order_id}"
-        started = time.monotonic()
 
-        print(f"\n=== wo-{order_id} : {rel} ===")
+        print(f"\n=== wo-{order_id} : {rel}  ->  {show(target)} ===")
 
-        exists = factory.git(root, "show-ref", "--verify", "--quiet",
-                             f"refs/heads/{order_branch}", check=False).returncode == 0
-        if exists:
-            factory.git(root, "checkout", "-q", order_branch)
-            print(f"resuming branch {order_branch}")
-        else:
-            factory.git(root, "checkout", "-q", "-b", order_branch, "main")
-            print(f"new branch {order_branch}")
+        # ---- the night's work happens inside the target repo, under a lock
+        repo_lock = factory.acquire_lock(locks, factory.repo_slug(target),
+                                         f"repo {show(target)}")
+        rc, report, run_err, secs = 0, "", "", 0
+        blocked_note = ""
+        try:
+            started = time.monotonic()
 
+            if not factory.clean_tree(target):
+                blocked_note = ("target repo has uncommitted changes — the factory "
+                                "will not mix your WIP into a night branch")
+                report = (f"**Status** — BLOCKED (by the runner, before the agent "
+                          f"started)\n\n{blocked_note}")
+                print(f"wo-{order_id} BLOCKED: {blocked_note}")
+            else:
+                bref = factory.base_ref(target)
+                exists = factory.git(target, "show-ref", "--verify", "--quiet",
+                                     f"refs/heads/{order_branch}",
+                                     check=False).returncode == 0
+                if exists:
+                    factory.git(target, "checkout", "-q", order_branch)
+                    print(f"resuming branch {order_branch}")
+                else:
+                    factory.git(target, "checkout", "-q", "-b", order_branch, bref)
+                    print(f"new branch {order_branch} (from {bref})")
+
+                prompt = (f"Execute work order {order_id} now, following the "
+                          f"night-shift manual in your system prompt.\n\n"
+                          f"# Work order {order_id}\n\n{order.read_text()}")
+
+                sessions = factory.load_sessions(sessions_file)
+                argv, new_ref = factory.build_command(
+                    args.engine, binary, system_prompt, prompt, order_id,
+                    sessions.get(f"{args.engine}:{order_id}"))
+                if new_ref:
+                    sessions[f"{args.engine}:{order_id}"] = new_ref
+                    factory.save_sessions(sessions_file, sessions)
+
+                # agent output is captured outside any working tree: anything
+                # written there could be swept onto a branch and vanish with
+                # a later checkout
+                with tempfile.TemporaryDirectory() as tmp:
+                    out_path = Path(tmp) / "out.md"
+                    err_path = Path(tmp) / "err.log"
+                    try:
+                        with out_path.open("w") as out, err_path.open("w") as err:
+                            proc = subprocess.run(argv, cwd=target, stdout=out,
+                                                  stderr=err, timeout=timeout_secs)
+                            rc = proc.returncode
+                    except subprocess.TimeoutExpired:
+                        rc = 124
+                    except FileNotFoundError:
+                        factory.die(f"engine executable not found: {binary} "
+                                    f"(set PI_BIN or CLAUDE_BIN)", 127)
+                    report = out_path.read_text()
+                    run_err = err_path.read_text()
+
+                secs = int(time.monotonic() - started)
+
+                # the agent must leave a committed branch; sweep up what it forgot
+                if not factory.clean_tree(target):
+                    factory.git(target, "add", "-A")
+                    factory.git(target, "commit", "-q", "-m",
+                                f"wo-{order_id}: night-shift WIP (auto-committed by runner)")
+                    print(f"note: uncommitted work was auto-committed to {order_branch}")
+        finally:
+            factory.release_lock(repo_lock)
+
+        # ---- bookkeeping: factory repo only; the target stays on the order branch
+        new_status = "blocked" if (rc != 0 or blocked_note) else "review"
         outfile = logs / f"{today}-wo-{order_id}.out.md"
         errfile = logs / f"{today}-wo-{order_id}.err.log"
-
-        cmd = [
-            pi_bin, "--print", "--approve",
-            "--append-system-prompt", "night-shift/NIGHT-SHIFT.md",
-            "--session-id", f"wo-{order_id}",
-            f"@{rel}",
-            f"Execute work order {order_id} now, following the night-shift manual.",
-        ]
-
-        # pi's output is captured outside the working tree: anything written
-        # here would be swept onto the order branch by the WIP commit below
-        # and vanish with the checkout back to main.
-        rc = 0
-        report = ""
-        run_err = ""
-        with tempfile.TemporaryDirectory() as tmp:
-            out_path = Path(tmp) / "out.md"
-            err_path = Path(tmp) / "err.log"
-            try:
-                with out_path.open("w") as out, err_path.open("w") as err:
-                    proc = subprocess.run(cmd, cwd=root, stdout=out, stderr=err,
-                                          timeout=timeout_secs)
-                    rc = proc.returncode
-            except subprocess.TimeoutExpired:
-                rc = 124
-            except FileNotFoundError:
-                factory.git(root, "checkout", "-q", "main")
-                factory.die(f"pi executable not found: {pi_bin} (set PI_BIN)", 127)
-            report = out_path.read_text()
-            run_err = err_path.read_text()
-
-        secs = int(time.monotonic() - started)
-
-        # The agent must leave a committed branch; sweep up anything it forgot
-        # so the checkout back to main can't carry junk over.
-        if not factory.clean_tree(root):
-            factory.git(root, "add", "-A")
-            factory.git(root, "commit", "-q", "-m",
-                        f"wo-{order_id}: night-shift WIP (auto-committed by runner)")
-            print(f"note: uncommitted work was auto-committed to {order_branch}")
-        factory.git(root, "checkout", "-q", "main")
-
-        new_status = "review" if rc == 0 else "blocked"
-
         outfile.write_text(report)
-        errfile.write_text(run_err)
+        errfile.write_text("" if rc == 0 else run_err)
 
         with order.open("a") as f:
-            f.write(f"\n### {datetime.now():%Y-%m-%d %H:%M} — night run, pi exit {rc} ({secs}s)\n\n")
+            f.write(f"\n### {datetime.now():%Y-%m-%d %H:%M} — night run "
+                    f"(engine {args.engine}, target {show(target)}), exit {rc} ({secs}s)\n\n")
             f.write(report)
             if rc != 0:
                 f.write(f"\n> run FAILED (exit {rc}). stderr: {errfile.relative_to(root)}\n")
 
+        factory.set_status(order, new_status)
+
         with run_log.open("a") as f:
             f.write(f"\n## {datetime.now():%H:%M} run\n")
-            f.write(f"- wo-{order_id} ({rel}): {new_status}, pi exit {rc}, {secs}s — "
+            f.write(f"- wo-{order_id} ({rel}) -> {show(target)}: {new_status}, "
+                    f"engine {args.engine}, exit {rc}, {secs}s — "
                     f"report in order file; raw: {outfile.relative_to(root)}\n")
 
-        factory.set_status(order, new_status)
-        factory.git(root, "add", str(rel), "night-shift/logs")
+        add_paths = [str(rel), "night-shift/logs"]
+        if args.engine == "claude":
+            add_paths.append("night-shift/sessions.json")
+        factory.git(root, "add", *add_paths)
         factory.git(root, "commit", "-q", "-m",
                     f"night-shift: wo-{order_id} -> {new_status} (exit {rc}, {secs}s)")
 
         print(f"wo-{order_id} -> {new_status} ({secs // 60}m{secs % 60:02d}s)")
 
         ran += 1
-        if rc != 0:
+        if new_status == "blocked":
             failed = order_id
             break
 
     print(f"\nnight shift over: {ran} order(s) processed.")
     if failed:
-        print(f"wo-{failed} FAILED — marked blocked; run stopped. See {run_log.relative_to(root)}")
+        print(f"wo-{failed} is blocked — run stopped. See {run_log.relative_to(root)}")
     print("morning: python3 day-shift/status.py")
 
 
