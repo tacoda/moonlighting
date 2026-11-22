@@ -110,7 +110,11 @@ One script, one command, end-to-end.
 - [x] **Auditability** — every run archives the engine's full JSON event stream (`night-shift/logs/*.events.jsonl`, `*.qa.jsonl`); the final report is extracted from it
 - [x] **Validation** — `night-shift/lint-order.py` for the day shift; the runner lint-blocks approved malformed orders before spending tokens
 - [x] **Scheduling** — `night-shift/schedule.py install|remove|status`; nightly cron, harmlessly no-ops on an empty queue
-- [~] **Budget rails**: per-order time cap done (`NIGHT_TIMEOUT_SECS`, default 7200s → killed and marked blocked); token cap not yet
+- [~] **Budget rails**: per-order time cap done (`NIGHT_TIMEOUT_SECS`, default 7200s → killed and marked blocked); token cap — now unblocked, since usage data lives in the archived event streams (parse, abort, mark blocked)
+- [ ] **Log rotation** — `logs/` and `cron.log` grow forever; rotate or cap someday (small)
+- [ ] **Claude engine live-fire** — implemented and stub-tested; the first real `--engine claude` order is pending (claude CLI not on this box yet)
+- [ ] **Multi-machine locks** — pid locks are machine-local; factories on different machines targeting the same repo won't collide-detect (per-repo clone pattern sidesteps this; revisit only for multi-box setups)
+- [ ] **Secrets framework** — beyond the night manual's “never commit secrets” rule: decide what credentials agents may see, and how
 
 ### Phase 4 — Expansion  *only if the loop proves out*
 
@@ -125,6 +129,7 @@ Still open:
 
 - [ ] **Skills** for recurring job types ("add a CLI command", "write a migration") loaded via `pi --skill`
 - [ ] **Prompt templates** for authoring work orders consistently
+- [ ] **Morning report** — push the night's verdicts to the day shift (email/messenger digest), so mornings start with the packets instead of a reminder to run `status.py`
 
 ## Scope discipline (what "minimal" means)
 
@@ -132,7 +137,9 @@ In scope for now: **Phases 0–2 only.** Plain Python (stdlib) + markdown.
 Hosts: pi and Claude Code (engine per run), both under the nWave guard.
 Orders may target external repos; one factory process per repo. One order per night run by default.
 
-Explicitly out of scope until Phase 3+: worktrees, JSON event archives, cron, token budgets, parallel orders within one repo. Every phase must leave the factory usable on its own — no half-built scaffolding.
+Explicitly out of scope until Phase 3+: worktrees (done), JSON event archives (done), cron (done), token budgets (pending, see Phase 3), parallel orders within one repo. Every phase must leave the factory usable on its own — no half-built scaffolding.
+
+**Build pause.** The machinery is done; the next feature should come from a real night's friction, not speculation. Run the factory for a month, then revisit this list.
 
 ## Risks & guardrails (baked in from Phase 1)
 
@@ -141,5 +148,6 @@ Explicitly out of scope until Phase 3+: worktrees, JSON event archives, cron, to
 | Agent merges its own work | Merging is a day-shift-only convention; night runner never merges |
 | Agent runs away on a vague order | Night manual: if acceptance criteria are unclear → set `blocked`, ask a question, stop |
 | Secrets/credentials exposed to the agent | Orders reference files, never inline secrets; `.env`-style files gitignored from day one |
-| Night run corrupts the repo | Each order works on its own branch; `main` only moves via day-shift merges |
+| Night run corrupts the repo | Each order works on its own branch in its own worktree; `main` only moves via day-shift merges |
+| Two machines, same target repo | Locks are machine-local — out of scope by design; keep one factory (on one machine) per target repo |
 | Silent failures | Runner logs every attempt (success or not) to `night-shift/logs/` and never deletes logs |

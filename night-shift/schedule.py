@@ -92,4 +92,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except factory.FactoryError as e:
+        print(e, file=sys.stderr)
+        sys.exit(e.code)

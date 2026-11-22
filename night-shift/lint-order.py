@@ -28,15 +28,15 @@ def main() -> None:
     seen: dict[str, str] = {}
     bad = 0
     for f in files:
-        problems = factory.lint_order(f, root)
-        oid = factory.parse_order(f).get("id", "")
-        if oid:
-            if oid in seen:
-                problems.append(f"id {oid} duplicates {seen[oid]}")
-            seen[oid] = f.name
+        order = factory.WorkOrder(f, root)
+        problems = order.lint()
+        if order.id:
+            if order.id in seen:
+                problems.append(f"id {order.id} duplicates {seen[order.id]}")
+            seen[order.id] = f.name
         if problems:
             bad += 1
-            print(f"{f.relative_to(root)}")
+            print(order.rel)
             for p in problems:
                 print(f"  - {p}")
 
@@ -47,4 +47,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except factory.FactoryError as e:
+        print(e, file=sys.stderr)
+        sys.exit(e.code)

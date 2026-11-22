@@ -12,14 +12,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import factory  # noqa: E402
 
 
-def branch_state(root: Path, target: Path, branch: str) -> str:
-    if factory.git(target, "show-ref", "--verify", "--quiet",
-                   f"refs/heads/{branch}", check=False).returncode != 0:
+def branch_state(repo: factory.TargetRepo, branch: str) -> str:
+    if not repo.branch_exists(branch):
         return ""
-    base = factory.base_ref(root, target)
+    base = repo.base_ref()
     behind, ahead = factory.git_out(
-        target, "rev-list", "--left-right", "--count", f"{base}...{branch}").split()
-    return (f"branch {branch} in {factory.display_target(root, target)}: "
+        repo.path, "rev-list", "--left-right", "--count",
+        f"{base}...{branch}").split()
+    return (f"branch {branch} in {repo.display()}: "
             f"{ahead} ahead of {base}, {behind} behind")
 
 
@@ -42,7 +42,8 @@ def show_locks(locks: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Factory floor report.")
-    ap.add_argument("--repo", default=None, help="only show this repo's orders (path or URL)")
+    ap.add_argument("--repo", default=None,
+                    help="only show this repo's orders (path or URL)")
     args = ap.parse_args()
 
     root = factory.repo_root()
@@ -51,16 +52,19 @@ def main() -> None:
 
     show_locks(root / "night-shift" / "locks")
 
-    filter_target = (factory.resolve_target(root, args.repo, update=False, soft=True)
-                     if args.repo else None)
+    filter_repo = (factory.TargetRepo.resolve(root, args.repo,
+                                              update=False, soft=True)
+                   if args.repo else None)
 
-    orders = {}
+    orders = []
     for path in sorted((root / "work-orders").glob("*.md")):
-        fields = factory.parse_order(path)
-        target = factory.resolve_target(root, fields.get("repo"), update=False, soft=True)
-        if filter_target is not None and target != filter_target:
+        order = factory.WorkOrder(path, root)
+        repo = factory.TargetRepo.resolve(root, order.repo_value,
+                                          update=False, soft=True)
+        if filter_repo is not None and (repo is None
+                                        or repo.path != filter_repo.path):
             continue
-        orders[path] = (fields, target)
+        orders.append((order, repo))
 
     groups = [
         ("review — needs your decision:", "review",
@@ -75,30 +79,28 @@ def main() -> None:
     print(f"factory floor — {datetime.now():%Y-%m-%d %H:%M}\n")
     closed = 0
     for label, status, hint in groups:
-        rows = [(p, f, t) for p, (f, t) in orders.items() if f.get("status") == status]
+        rows = [(o, r) for o, r in orders if o.status == status]
         if not rows:
             continue
         print(label)
-        for path, fields, target in rows:
-            oid = fields.get("id", "?")
-            branch = fields.get("branch") or f"wo/{oid}"
-            if target is None:
-                repo_tag = f"  [missing/uncloned: {fields.get('repo')}]"
-            elif target == root:
+        for order, repo in rows:
+            if repo is None:
+                repo_tag = f"  [missing/uncloned: {order.repo_value}]"
+            elif repo.path == root:
                 repo_tag = ""
             else:
-                repo_tag = f"  [{factory.display_target(root, target)}]"
-            print(f"  {oid}{repo_tag}  {fields.get('title', '?')}")
-            if target is not None:
-                state = branch_state(root, target, branch)
+                repo_tag = f"  [{repo.display()}]"
+            print(f"  {order.id}{repo_tag}  {order.title}")
+            if repo is not None:
+                state = branch_state(repo, order.branch)
                 if state:
                     print(f"      {state}")
             if hint:
-                print(f"      {hint.replace('ID', oid)}")
+                print(f"      {hint.replace('ID', order.id)}")
         print()
 
-    for fields, _ in orders.values():
-        if fields.get("status") in ("done", "rejected"):
+    for order, _ in orders:
+        if order.status in ("done", "rejected"):
             closed += 1
     if closed:
         print(f"done/rejected: {closed} closed\n")
@@ -106,4 +108,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except factory.FactoryError as e:
+        print(e, file=sys.stderr)
+        sys.exit(e.code)
