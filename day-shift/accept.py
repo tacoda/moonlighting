@@ -67,7 +67,9 @@ def main() -> None:
           f"({ahead} commit(s)); order -> done")
     if target != root:
         print(f"remember: push {t_display} yourself — the factory never pushes")
-    print(f"optional cleanup: git -C {t_display} branch -D {branch}")
+        print(f"optional cleanup: git -C {t_display} branch -D {branch}")
+    else:
+        print(f"optional cleanup: git branch -D {branch}")
 
 
 if __name__ == "__main__":
