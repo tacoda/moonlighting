@@ -1,7 +1,7 @@
 ---
 id: 003
 title: Checker allowlist for SPA routes and sibling project pages
-status: draft
+status: approved
 created: 2026-11-22
 branch: wo/003
 repo: /home/linuxuser/repos/tacoda.github.io
