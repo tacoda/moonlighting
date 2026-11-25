@@ -62,8 +62,8 @@ AGENTS.md               standing instructions for any agent in this repo
 
 ## The rules
 
-- The night shift executes only `approved` orders, each on its own branch (`wo/NNN`).
-- Only the day shift merges code into `main` (squash, via `day-shift/accept.py`).
+- The night shift executes only `approved` orders, each on its own branch (`wo/<id>`).
+- Only the day shift merges code into `main` (squash, via `moonlighting accept ID`).
   Night bookkeeping (run logs) commits straight to `main` — but never contains code.
   The factory treats order files as input: gitignored, relocatable via
   `FACTORY_ORDERS_DIR`.
@@ -82,7 +82,7 @@ Three hosts run the same work orders through the same flow:
 
 | engine | headless invocation | sessions | model syntax |
 | --- | --- | --- | --- |
-| pi (default) | `pi --print` | deterministic: `wo-NNN` | `provider/id`, optional `:thinking` |
+| pi (default) | `pi --print` | deterministic: `wo-<id>` | `provider/id`, optional `:thinking` |
 | claude | `claude -p` | uuid per order, kept in `night-shift/sessions.json` | alias or full model id |
 | opencode | `opencode run` | host picks the id (`ses_...`), kept in `night-shift/sessions.json` | `provider/model#variant` |
 
@@ -143,7 +143,7 @@ factory status
   (`pi` → `/login` once), Claude Code (`claude` installed and logged in)
   and/or [opencode](https://opencode.ai) (`opencode auth login` once). Or
   point `PI_BIN`, `CLAUDE_BIN` or `OPENCODE_BIN` at a compatible binary
-- for self-running nights: `crontab` (install with `night-shift/schedule.py install`)
+- for self-running nights: `crontab` (install with `moonlighting schedule install`)
 
 ## First night
 

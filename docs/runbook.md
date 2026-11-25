@@ -88,35 +88,35 @@
 2. For each `review` order:
    - Read the **QA pre-shift verdict** (SHIP/BLOCK/UNSURE) and the agent's
      report in the order file — the QA packet's criteria table is your
-     shortcut; spot-check what it flags.
+     shortcut. Spot-check what it flags.
    - Review the branch **in its target repo**:
-     `git -C <target> diff main...wo/NNN` — run the result if warranted.
+     `git -C <target> diff main...wo/<id>` — run the result if warranted.
    - Good → `moonlighting accept ID` (squash-merges into the target's
      main, marks done). Push the target repo yourself — the factory never
      pushes.
-   - Not there yet → set `blocked`, append your question under
-     *Day shift decisions*; tonight's rerun continues the same agent session,
-     so it remembers its own work.
-   - Wrong direction → `rejected`, with a reason.
-3. For each `blocked`: answer the agent's question in the order file, flip to
-   `approved`.
-4. Write tonight's orders, approve them, go home.
+   - Not there yet → `moonlighting feedback ID "what to change"`. It goes
+     back to blocked, and tonight's rerun continues the same agent session.
+   - Wrong direction → edit the order to `rejected`, with a reason.
+3. For each `blocked`: `moonlighting answer ID "your answer"` records the
+   answer and re-approves for tonight.
+4. Write tonight's orders with `moonlighting new-order`, approve them, go
+   home.
 
 ## Forensics
 
 - Order file — every run's report plus the QA pre-shift verdict.
-- Raw agent output — `night-shift/logs/YYYY-MM-DD-wo-NNN.out.md` (+
+- Raw agent output — `night-shift/logs/YYYY-MM-DD-wo-<id>.out.md` (+
   `.err.log` on failures).
 - Night never started? `night-shift/logs/errors.log` holds pre-flight
   failures: dirty floor, wrong branch, missing binary.
 - Full event streams — `night-shift/logs/*.events.jsonl` and `*.qa.jsonl`:
   every tool call, every token, archived. This is the factory's flight
   recorder.
-- Sessions — pi: `pi --session wo-NNN`. claude: `claude --resume <uuid>`.
+- Sessions — pi: `pi --session wo-<id>`. claude: `claude --resume <uuid>`.
   opencode: the id (`ses_...`) from the local `night-shift/sessions.json`.
 - Worktrees — created per run under `night-shift/worktrees/`, removed when
   the run ends. To poke at a finished night: `git -C <target> diff
-  main...wo/NNN`, or `git -C <target> worktree add /tmp/poke wo/NNN`.
+  main...wo/<id>`, or `git -C <target> worktree add /tmp/poke wo/<id>`.
 
 ## Conventions
 

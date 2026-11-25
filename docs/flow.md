@@ -42,7 +42,7 @@ flowchart TD
 sequenceDiagram
     actor H as Day shift (human)
     participant C as cron (00:01)
-    participant R as run.py (runner)
+    participant R as moonlighting night
     participant E as Engine (pi / claude / opencode)
     participant T as Target repo
 
@@ -54,9 +54,9 @@ sequenceDiagram
     R->>R: collect queue (approved, linted)
     loop each order (max N per night)
         R->>T: repo lock · base_ref (ff local main)
-        R->>T: git worktree add wo/NNN
+        R->>T: git worktree add wo/<id>
         R->>E: headless pass (manual + order embedded)
-        E->>T: implement + commit on wo/NNN
+        E->>T: implement + commit on wo/<id>
         E-->>R: JSON event stream → report
         R->>E: QA pre-shift (run the criteria)
         E-->>R: verdict SHIP / BLOCK / UNSURE
@@ -65,10 +65,10 @@ sequenceDiagram
     end
     Note over H,T: morning — decisions only
 
-    H->>R: status.py (floor report)
+    H->>R: moonlighting status (floor report)
     H->>H: read QA verdict + diff
     alt good
-        H->>T: accept.py NNN (squash-merge, done)
+        H->>T: moonlighting accept ID (squash-merge, done)
         H->>T: push the target
     else not there yet
         H->>T: status: blocked + question
