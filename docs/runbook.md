@@ -27,9 +27,9 @@
 
 ## Writing orders (day shift)
 
-- `cp docs/work-order-template.md work-orders/00N-short-title.md` — zero-pad
-  ids to 3 digits; one order = one branch = one review. Ids are never reused,
-  even after `done`.
+- `python3 day-shift/new-order.py "Title" [--repo R] [--model M]` creates the
+  next order: id, filename slug, date and branch come filled in. One order =
+  one branch = one review. Ids are never reused, even after `done`.
 - Before approving: `python3 night-shift/lint-order.py` — it catches
   malformed orders (missing fields, empty sections, bad repo paths) before
   they spend tokens. The night runner also lint-blocks approved orders

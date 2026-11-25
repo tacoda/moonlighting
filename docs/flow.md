@@ -11,7 +11,7 @@ flowchart TD
         A["write order\n(status: draft)"] --> B["lint-order.py"]
         B -->|"problems"| B2["fix the order"]
         B2 --> B
-        B -->|"clean"| C["status: approved + commit\nthis is the handover"]
+        B -->|"clean"| C["status: approved\nthis is the handover"]
         M["morning: status.py"] --> N{"verdict"}
         N -->|"good"| O["accept.py NNN\nsquash-merge into target main"]
         O --> P["done — push the target\n(factory never pushes)"]
@@ -21,7 +21,7 @@ flowchart TD
     end
 
     subgraph NIGHT ["🌙 Night shift — agents execute"]
-        S["01:17 cron fires\nrun.py --max-orders 3"] --> T{"approved orders?"}
+        S["00:01 cron fires\nrun.py --max-orders 3"] --> T{"approved orders?"}
         T -->|"none"| U["log the no-op\nexit 0 — zero tokens"]
         T -->|"yes"| V["lint gate"]
         V -->|"malformed"| W["blocked — no tokens spent\nhealthy orders still run"]
@@ -33,7 +33,7 @@ flowchart TD
 
     C --> S
     AA --> M
-    RE -.->|"next 01:17"| S
+    RE -.->|"next 00:01"| S
 ```
 
 ## Sequence diagram — one full day/night cycle
@@ -41,12 +41,12 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     actor H as Day shift (human)
-    participant C as cron (01:17)
+    participant C as cron (00:01)
     participant R as run.py (runner)
     participant E as Engine (pi / claude / opencode)
     participant T as Target repo
 
-    H->>H: write order · lint · approve · commit
+    H->>H: write order · lint · approve
     Note over H,T: evening — the handover
 
     C->>R: nightly fire

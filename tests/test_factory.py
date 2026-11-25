@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -615,3 +616,48 @@ def test_rotate_logs_roundtrip(tmp_path):
         ["git", "-C", str(root), "log", "--oneline", "-1"],
         capture_output=True, text=True).stdout
     assert "rotate-logs" in log_line
+
+
+def test_new_order_creates_filled_ids(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    root = make_git_repo(tmp_path / "f")
+    (root / "work-orders").mkdir()
+    docs = root / "docs"
+    docs.mkdir()
+    template = repo_root / "docs" / "work-order-template.md"
+    (docs / "work-order-template.md").write_text(template.read_text())
+    script = repo_root / "day-shift" / "new-order.py"
+    r = subprocess.run([sys.executable, str(script), "Atom: feed!"],
+                       cwd=root, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    first = root / "work-orders" / "001-atom-feed.md"
+    assert first.exists()
+    text = first.read_text()
+    assert "id: 001" in text and "title: Atom: feed!" in text
+    assert f"created: {date.today().isoformat()}" in text
+    assert "branch: wo/001" in text
+    r2 = subprocess.run([sys.executable, str(script), "Second thing"],
+                        cwd=root, capture_output=True, text=True)
+    assert r2.returncode == 0, r2.stderr
+    assert (root / "work-orders" / "002-second-thing.md").exists()
+
+
+def test_new_order_repo_and_model_fields(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    root = make_git_repo(tmp_path / "f")
+    target = make_git_repo(tmp_path / "shop")
+    (root / "work-orders").mkdir()
+    docs = root / "docs"
+    docs.mkdir()
+    template = repo_root / "docs" / "work-order-template.md"
+    (docs / "work-order-template.md").write_text(template.read_text())
+    script = repo_root / "day-shift" / "new-order.py"
+    r = subprocess.run(
+        [sys.executable, str(script), "Chore", "--repo", str(target),
+         "--model", "x/y:high"],
+        cwd=root, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    text = (root / "work-orders" / "001-chore.md").read_text()
+    assert f"repo: {target}" in text
+    assert "model: x/y:high" in text
+    assert "lint: clean" in r.stdout

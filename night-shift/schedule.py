@@ -48,8 +48,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Schedule the night shift via cron.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     inst = sub.add_parser("install", help="install (or replace) the nightly entry")
-    inst.add_argument("--at", default="17 1", metavar="MINUTE HOUR",
-                      help="daily fire time (default: 17 1, i.e. 01:17)")
+    inst.add_argument("--at", default="1 0", metavar="MINUTE HOUR",
+                      help="daily fire time (default: 1 0, i.e. 00:01)")
     inst.add_argument("--max-orders", type=int, default=3,
                       help="orders per night (default: 3)")
     inst.add_argument("--engine", default=os.environ.get("FACTORY_ENGINE", "pi"),

@@ -46,6 +46,7 @@ night-shift/locks/      run locks (gitignored)
 night-shift/worktrees/  per-run worktrees of target repos (gitignored, removed after each run)
 repos/                  target repos cloned from git URLs (gitignored)
 day-shift/status.py     factory floor report
+day-shift/new-order.py  create the next order from the template
 day-shift/accept.py     squash-merge a reviewed order into its target repo
 day-shift/rotate-logs.py    gzip old night logs into logs/archive/ (never deletes)
 factory.py              shared helpers for the factory scripts
@@ -144,7 +145,7 @@ python3 day-shift/status.py
 
 ## First night
 
-1. `cp docs/work-order-template.md work-orders/001-my-task.md` and fill it in
+1. `python3 day-shift/new-order.py "My task"` and fill it in
 2. Flip `status: draft` → `approved` — this is the handover
 3. `python3 night-shift/run.py`
 4. Tomorrow: `./day-shift/status.py` → review the diff → `./day-shift/accept.py 001`
