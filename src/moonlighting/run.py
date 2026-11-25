@@ -352,7 +352,7 @@ class NightRun:
             print(f"QA moved the branch tip on wo-{order.id} — resetting to "
                   f"the agent's tip")
             factory.git(wt_path, "reset", "--quiet", "--hard", tip_before)
-        report = self.engine.extract_report(raw) if self.json_audit else raw
+        report = qa_engine.extract_report(raw) if self.json_audit else raw
         print(f"QA pre-shift done (exit {rc})")
         return rc, raw, report, moved
 

@@ -1072,6 +1072,26 @@ def test_night_plan_skipped_without_model(tmp_path, monkeypatch):
     assert len(calls) == 1
 
 
+def test_qa_pass_extracts_with_the_order_engine(tmp_path, monkeypatch):
+    fl = fake_floor()
+    night = nightrun.NightRun(fl, "pi", None, 5, True, 60)
+    order = make_order(tmp_path)
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    claude_raw = ('{"type":"result","duration_api_ms":1,'
+                  '"result":"SHIP\\n\\n**Verdict** — pass"}')
+    monkeypatch.setattr(factory, "git_out", lambda cwd, *a: "abc")
+    monkeypatch.setattr(
+        nightrun.NightRun, "_agent_pass",
+        lambda self, argv, cwd, stdin_text=None, timeout_secs=None,
+        env_extra=None, engine=None: (0, claude_raw, ""))
+    rc, raw, report, moved = night._qa_pass(
+        order, wt, branch="wo/x", base="main",
+        engine=factory.engine("claude"), engine_name="claude")
+    assert report.startswith("SHIP")
+    assert moved is False
+
+
 def test_schedule_at_validation(monkeypatch):
     monkeypatch.setattr(schedule.shutil, "which", lambda name: None)
     with pytest.raises(factory.FactoryError):
