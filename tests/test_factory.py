@@ -819,7 +819,8 @@ def test_night_applies_profile_identity(tmp_path, monkeypatch):
     monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
     monkeypatch.setenv("FACTORY_QA", "0")
     stub = tmp_path / "stub_engine.py"
-    stub.write_text("from pathlib import Path\n"
+    stub.write_text("#!/usr/bin/env python3\n"
+                    "from pathlib import Path\n"
                     "Path('night_work.txt').write_text('work')\n")
     stub.chmod(0o755)
     monkeypatch.setenv("PI_BIN", str(stub))
