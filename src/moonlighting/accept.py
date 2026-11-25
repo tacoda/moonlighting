@@ -1,13 +1,44 @@
-#!/usr/bin/env python3
-"""day-shift/accept.py NNN — squash-merge order NNN into its target repo, mark done."""
+"""moonlighting accept ID — push the order branch and open a PR.
+
+The day shift never merges locally. Accept pushes the review branch to
+origin, opens a GitHub PR, records its URL in the order, and leaves the
+merge to you.
+"""
 
 from __future__ import annotations
 
+import subprocess
 import sys
-import tempfile
-from pathlib import Path
 
 from . import factory
+
+
+def gh(args: list[str]) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(["gh", *args], capture_output=True, text=True)
+    except FileNotFoundError:
+        factory.die("gh not found — install the GitHub CLI to open PRs")
+
+
+def github_slug(url: str) -> str | None:
+    """owner/name from a github remote URL, https or ssh, else None."""
+    for marker in ("github.com/", "github.com:"):
+        if marker in url:
+            return url.split(marker, 1)[1].removesuffix(".git").strip("/")
+    return None
+
+
+def pr_body(order: factory.WorkOrder) -> str:
+    """The order content up to the first runner log section, minus the
+    frontmatter."""
+    text = order.path.read_text()
+    cut = text.find("\n### ")
+    body = text[:cut] if cut >= 0 else text
+    if body.startswith("---\n"):
+        end = body.find("\n---\n", 4)
+        if end >= 0:
+            body = body[end + 5:]
+    return body.strip()
 
 
 def main() -> None:
@@ -21,14 +52,11 @@ def main() -> None:
         factory.die(f"expected exactly one order matching '{oid}*', "
                     f"found {len(matches)}")
     order = factory.WorkOrder(matches[0])
-
     if order.status != "review":
-        factory.die(f"{oid} is '{order.status}', not 'review' — decide "
-                    f"blocked/draft orders in the order file first")
-
+        factory.die(f"{order.id} is '{order.status}', not 'review' — "
+                    f"accept ships review orders")
     repo = factory.TargetRepo.resolve(order.repo_value)
-    if repo is None:
-        factory.die(f"cannot resolve repo '{order.repo_value}' for {oid}")
+    assert repo is not None
     branch = order.branch
     t_display = repo.display()
 
@@ -38,50 +66,34 @@ def main() -> None:
     ahead = int(factory.git_out(repo.path, "rev-list", "--count",
                                 f"{base}..{branch}") or "0")
     if ahead == 0:
-        factory.die(f"{branch} has no commits ahead of {base} in {t_display} — "
-                    f"nothing to merge")
+        factory.die(f"{branch} has no commits ahead of {base} in {t_display}"
+                    f" — nothing to ship")
+
+    origin = factory.git_out(repo.path, "remote", "get-url", "origin")
+    slug = github_slug(origin)
+    if not slug:
+        factory.die(f"{t_display} has no GitHub origin — a PR needs one")
+
+    env = repo.env()
+    factory.git(repo.path, "push", "origin", branch, env=env)
 
     title = order.title or oid
-    commit_msg = f"wo-{oid}: {title} (night shift; accepted by day shift)"
-    env = repo.env()
+    pr = gh(["pr", "create", "--repo", slug, "--base", base,
+             "--head", branch,
+             "--title", f"wo-{oid}: {title}",
+             "--body", pr_body(order)])
+    if pr.returncode != 0 and "already exists" in pr.stderr:
+        pr = gh(["pr", "view", branch, "--repo", slug,
+                 "--json", "url", "-q", ".url"])
+    if pr.returncode != 0:
+        print(pr.stderr.strip())
+        factory.die("gh failed after the push — open the PR by hand")
+    pr_url = pr.stdout.strip() or "(see GitHub)"
 
-    if repo.current_branch() == base:
-        # The target sits on main, so the merge happens in place. The human
-        # asked for this landing, and main is where it belongs.
-        if repo.is_dirty():
-            factory.die(f"target repo is dirty: {t_display} — commit or stash "
-                        f"there first")
-        merge = factory.git(repo.path, "merge", "--squash", branch, check=False)
-        if merge.returncode != 0:
-            print(merge.stdout + merge.stderr, file=sys.stderr)
-            factory.die("squash-merge conflicts — resolve by hand in the target "
-                        f"repo, or: git -C {t_display} merge --abort")
-        # the work commits in the target repo (squash only stages it)
-        factory.git(repo.path, "add", "-A")
-        factory.git(repo.path, "commit", "-q", "-m", commit_msg, env=env)
-    else:
-        # The target sits on another branch. Merge in a throwaway worktree
-        # at main, so the human's checkout stays exactly where it is.
-        with tempfile.TemporaryDirectory() as tmp:
-            wt = Path(tmp) / "accept"
-            factory.git(repo.path, "worktree", "add", str(wt), base)
-            try:
-                merge = factory.git(wt, "merge", "--squash", branch, check=False)
-                if merge.returncode != 0:
-                    print(merge.stdout + merge.stderr, file=sys.stderr)
-                    factory.die("squash-merge conflicts — merge by hand when "
-                                f"ready: git -C {t_display} merge --squash {branch}")
-                factory.git(wt, "add", "-A")
-                factory.git(wt, "commit", "-q", "-m", commit_msg, env=env)
-            finally:
-                factory.git(repo.path, "worktree", "remove", "--force",
-                            str(wt), check=False)
-    order.set_status("done")
-
-    print(f"accepted wo-{oid}: squash-merged {branch} into {base} in {t_display} "
-          f"({ahead} commit(s)); order -> done")
-    print(f"remember: push {t_display} yourself — the factory never pushes")
-    print(f"optional cleanup: git -C {t_display} branch -D {branch}")
+    order.record_decision(f"PR opened: {pr_url}")
+    print(f"shipped wo-{oid}: pushed {branch}, PR {pr_url}")
+    print("merge it on GitHub, then clean up: "
+          f"moonlighting remove {oid} --yes")
 
 
 if __name__ == "__main__":

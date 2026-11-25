@@ -58,15 +58,15 @@ def main(ctx: typer.Context):
         print(ctx.get_help())
 
 
-@app.command("accept", help="Squash-merge a review order into its target repo.",
-             context_settings=FORWARD)
+@app.command("accept", help="Ship a review order: push the branch and open "
+             "a PR.", context_settings=FORWARD)
 def accept_cmd(ctx: typer.Context,
                order_id: str = typer.Argument(..., help=ID_HELP)):
     _forward(ctx, "accept", [order_id])
 
 
-@app.command("answer", help="Reply to a blocked order. It re-runs tonight.",
-             context_settings=FORWARD)
+@app.command("answer", help="Alias of reply: answer a blocked order and "
+             "re-approve it.", context_settings=FORWARD)
 def answer_cmd(ctx: typer.Context,
                order_id: str = typer.Argument(..., help=ID_HELP),
                message: list[str] | None = typer.Argument(None, help=MSG_HELP)):
@@ -87,8 +87,8 @@ def edit_cmd(ctx: typer.Context,
     _forward(ctx, "edit", [order_id])
 
 
-@app.command("feedback", help="Send a review order back to blocked, with notes.",
-             context_settings=FORWARD)
+@app.command("feedback", help="Alias of reply: park a review order as "
+             "blocked with notes.", context_settings=FORWARD)
 def feedback_cmd(ctx: typer.Context,
                  order_id: str = typer.Argument(..., help=ID_HELP),
                  message: list[str] | None = typer.Argument(None, help=MSG_HELP)):
@@ -210,6 +210,16 @@ def remove_cmd(ctx: typer.Context,
                yes: bool = typer.Option(
                    False, "--yes", help="Delete without the prompt.")):
     _forward(ctx, "remove", [order_id], [("--yes", yes)])
+
+
+@app.command("reply", help="One day-shift reply: on review it parks the "
+             "order as blocked; on blocked it re-approves it.",
+             context_settings=FORWARD)
+def reply_cmd(ctx: typer.Context,
+              order_id: str = typer.Argument(..., help=ID_HELP),
+              message: list[str] | None = typer.Argument(
+                  None, help="Your notes or answer.")):
+    _forward(ctx, "reply", [order_id, *(message or [])])
 
 
 @app.command("rotate-logs", help="Gzip old night logs into logs/archive/.",

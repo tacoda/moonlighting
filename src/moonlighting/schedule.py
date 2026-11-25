@@ -42,25 +42,29 @@ def set_crontab(content: str) -> None:
         factory.die(f"crontab install failed: {r.stderr.strip()}")
 
 
-def install_cron(at="1 0", max_orders=3, engine=None, model=None,
-                 qa_model=None) -> None:
-    """Install (or replace) the nightly entry. Works in dev mode (uv run
-    inside the checkout) and in global mode (the installed binary)."""
+def install_cron() -> None:
+    """Install (or replace) the nightly entry. Fire time, order cap and
+    engine come from the config; there are no flags."""
+    at = factory.factory_setting("schedule-at") or "1 0"
+    raw_max = factory.factory_setting("schedule-max-orders") or "3"
+    try:
+        max_orders = int(raw_max)
+    except ValueError:
+        factory.die("config schedule-max-orders must be an integer", 2)
     try:
         minute, hour = (int(p) for p in at.split())
     except ValueError:
-        factory.die("--at takes 'minute hour', e.g. --at '17 1'", 2)
+        factory.die("schedule-at takes 'minute hour', e.g. '17 1'", 2)
     if not (0 <= minute <= 59 and 0 <= hour <= 23):
-        factory.die("--at takes 'minute hour' in range (minute 0-59, hour 0-23)", 2)
+        factory.die("schedule-at takes 'minute hour' in range "
+                    "(minute 0-59, hour 0-23)", 2)
 
-    engine = (engine or os.environ.get("FACTORY_ENGINE")
+    engine = (os.environ.get("FACTORY_ENGINE")
               or factory.factory_setting("engine") or "pi")
     bin_var = f"{engine.upper()}_BIN"
     bin_val = os.environ.get(bin_var) or shutil.which(engine)
     if not bin_val:
         factory.die(f"{engine} not found on PATH (set {bin_var})")
-    model_part = f" --model '{model}'" if model else ""
-    qa_model_part = f" --qa-model '{qa_model}'" if qa_model else ""
     orders_env = os.environ.get("FACTORY_ORDERS_DIR")
     orders_part = f" FACTORY_ORDERS_DIR='{orders_env}'" if orders_env else ""
     cfg_env = os.environ.get(factory.CONFIG_ENV)
@@ -73,8 +77,7 @@ def install_cron(at="1 0", max_orders=3, engine=None, model=None,
     logs = factory.data_dir() / "logs"
     entry = (f"{minute} {hour} * * * {orders_part}{cfg_part} "
              f"{bin_var}='{os.path.abspath(bin_val)}' '{mbin}' night "
-             f"--engine {engine}{model_part}{qa_model_part} "
-             f"--max-orders {max_orders} "
+             f"--engine {engine} --max-orders {max_orders} "
              f">> '{logs / 'cron.log'}' 2>&1 {TAG}")
 
     kept = [line for line in current_crontab().splitlines() if TAG not in line]
@@ -89,28 +92,14 @@ def install_cron(at="1 0", max_orders=3, engine=None, model=None,
 def main() -> None:
     ap = argparse.ArgumentParser(description="Schedule the night shift via cron.")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    inst = sub.add_parser("install", help="install (or replace) the nightly entry")
-    inst.add_argument("--at", default="1 0", metavar="MINUTE HOUR",
-                      help="daily fire time (default: 1 0, i.e. 00:01)")
-    inst.add_argument("--max-orders", type=int, default=3,
-                      help="orders per night (default: 3)")
-    inst.add_argument("--engine", default=None,
-                      help="host agent: pi, claude, opencode, codex or any configured harness. env "
-                           "FACTORY_ENGINE, then the config file, then pi")
-    inst.add_argument("--model", default=os.environ.get("FACTORY_MODEL"),
-                      help="model string for the engine, passed verbatim "
-                           "(host-specific syntax). env FACTORY_MODEL")
-    inst.add_argument("--qa-model", default=os.environ.get("FACTORY_QA_MODEL"),
-                      help="model for the QA pass. Falls back to the order "
-                           "model. env FACTORY_QA_MODEL")
+    sub.add_parser("install", help="install (or replace) the nightly entry "
+                                   "from the config")
     sub.add_parser("remove", help="remove the nightly entry")
     sub.add_parser("status", help="show the nightly entry, if any")
     args = ap.parse_args()
 
     if args.cmd == "install":
-        install_cron(at=args.at, max_orders=args.max_orders,
-                     engine=args.engine, model=args.model,
-                     qa_model=args.qa_model)
+        install_cron()
         return
 
     lines = current_crontab().splitlines()

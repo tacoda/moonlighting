@@ -488,6 +488,11 @@ class NightRun:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Execute approved work orders (night shift).")
+    cfg = factory.load_config().get("factory", {})
+    try:
+        max_default = int(cfg.get("max-orders") or 1)
+    except (TypeError, ValueError):
+        factory.die("config max-orders must be an integer", 2)
     ap.add_argument("--engine", default=None,
                     help="host agent: pi, claude, opencode, codex or any configured harness. "
                          "env FACTORY_ENGINE, or config [factory] engine")
@@ -503,10 +508,12 @@ def main() -> None:
                     help="model for the QA pass. Falls back to the order "
                          "model. env FACTORY_QA_MODEL, or config "
                          "[factory] qa-model")
-    ap.add_argument("--repo", default=None, metavar="REPO",
-                    help="only process orders for this repo (path or git URL)")
-    ap.add_argument("--max-orders", type=int, default=1,
-                    help="run at most N orders (default: 1)")
+    ap.add_argument("--repo", default=cfg.get("repo") or None, metavar="REPO",
+                    help="only process orders for this repo "
+                         "(default: config repo)")
+    ap.add_argument("--max-orders", type=int, default=max_default,
+                    help="run at most N orders (default: config max-orders, "
+                         "or 1)")
     ap.add_argument("--dry-run", action="store_true",
                     help="list what would run, change nothing")
     args = ap.parse_args()

@@ -27,9 +27,8 @@ moonlighting status                 see every order: approved, blocked, review, 
 moonlighting approve ID             approve a draft
 moonlighting night                  run the queue (--repo, --engine, --model, --max-orders)
 moonlighting remove ID              delete an order file (a done order's record stays in the logs)
-moonlighting accept ID              merge a reviewed order into its target repo
-moonlighting answer ID "text"       answer a blocked order; it re-approves for tonight
-moonlighting feedback ID "text"     send a review back with feedback; it goes to blocked
+moonlighting accept ID              push the branch and open a PR. Merge it on GitHub
+moonlighting reply ID "text"        one reply: parks a review, answers a blocked order
 moonlighting lint-orders            check every order before spending tokens
 moonlighting rotate-logs --days 90  gzip old logs (never deletes)
 moonlighting schedule install       nightly cron at 00:01 (remove and status too)
@@ -76,10 +75,10 @@ AGENTS.md               standing instructions for any agent in this repo
 ## The rules
 
 - The night shift executes only `approved` orders, each on its own branch (`wo/<id>`).
-- Only the day shift merges code into a target repo's `main` (squash, via
-  `moonlighting accept ID`). The factory never pushes. Run reports, QA
-  packets and order status flips land under the data directory, never in
-  anyone's repo.
+- The day shift never merges locally. `moonlighting accept ID` pushes a
+  review branch to origin and opens a PR. You merge it on GitHub. Run
+  reports, QA packets and order status flips land under the data
+  directory, never in anyone's repo.
 - A blocked or ambiguous order stops the agent. It asks; it never guesses.
 - The night shift produces **options, not answers**: when the problem is
   unknown, an order asks for variants, and the day shift decides among them.
@@ -87,8 +86,8 @@ AGENTS.md               standing instructions for any agent in this repo
   binding name, a path, or a git URL. URLs are cloned under the data
   directory and refreshed each night. Night work
   happens in a throwaway git worktree of the target repo — your working
-  copies are never switched or touched. Only the day shift merges there, and
-  the factory never pushes.
+  copies are never switched or touched. The day shift never merges locally.
+  `moonlighting accept ID` pushes the branch and opens a PR.
 
 ## Engines
 
@@ -169,9 +168,9 @@ the `moonlighting`
 
 1. `moonlighting new-order "My task"` — answer the prompts, then approve
 2. `moonlighting night`
-3. Tomorrow: `moonlighting status` shows the verdicts. Review the diff, then
-   `moonlighting accept ID`, `moonlighting feedback ID "..."` or
-   `moonlighting answer ID "..."`
+3. Tomorrow: `moonlighting status` shows the verdicts. Review the diff. Then
+   `moonlighting accept ID` ships a PR. `moonlighting reply ID "..."`
+   answers a blocked order or parks a review.
 4. Optional: `moonlighting schedule install` runs the night daily at 00:01
 
 The full shift checklists live in [`docs/runbook.md`](docs/runbook.md).

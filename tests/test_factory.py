@@ -690,26 +690,35 @@ def test_night_timeout_guard(tmp_path):
 # ------------------------------------------------------------- accept
 
 
-def test_accept_squash_merges_and_marks_done(tmp_path, monkeypatch, capsys):
+def test_accept_pushes_and_opens_pr(tmp_path, monkeypatch):
     fl = fake_floor()
     (fl["orders"] / "a1b2c3d-x.md").write_text(
         ORDER.replace("status: draft", "status: review")
              .replace("---\n", "---\nrepo: shop\n", 1))
     repo = FakeRepo(tmp_path / "shop")
     patch_resolve(monkeypatch, {"shop": repo})
-    calls = []
+    pushed = []
+    monkeypatch.setattr(factory.TargetRepo, "branch_exists",
+                        lambda self, name: True)
+    monkeypatch.setattr(factory, "git_out", lambda cwd, *a:
+                        "github.com/acme/shop.git" if "get-url" in a else "3")
     monkeypatch.setattr(factory, "git",
                         lambda cwd, *a, check=True, env=None:
-                        calls.append(a) or _R(0))
-    monkeypatch.setattr(factory, "git_out", lambda cwd, *a: "3")
+                        pushed.append(a) or _R(0))
+    gh_calls = []
+
+    def fake_gh(args):
+        gh_calls.append(args)
+        return _R(0, "https://github.com/acme/shop/pull/7", "")
+
+    monkeypatch.setattr(accept, "gh", fake_gh)
     monkeypatch.setattr(sys, "argv", ["moonlighting", "a1b2c3d"])
     accept.main()
     text = (fl["orders"] / "a1b2c3d-x.md").read_text()
-    assert "status: done" in text
-    assert ("merge", "--squash", "wo/a1b2c3d") in calls
-    assert ("commit", "-q", "-m",
-            "wo-a1b2c3d: Test order (night shift; accepted by day shift)") in calls
-    assert str(repo.path) in capsys.readouterr().out
+    assert "status: review" in text
+    assert "PR opened: https://github.com/acme/shop/pull/7" in text
+    assert ("push", "origin", "wo/a1b2c3d") in pushed
+    assert gh_calls[0][0] == "pr" and "--head" in gh_calls[0]
 
 
 def test_accept_refuses_draft(tmp_path, capsys):
@@ -797,7 +806,7 @@ def test_answer_and_feedback_roundtrip():
 
     r3 = run_module("feedback", "a1b2c3d", "nope")
     assert r3.returncode == 1
-    assert "not 'review'" in r3.stderr
+    assert "reply needs a review or blocked" in r3.stderr
 
 
 def test_approve_script():
@@ -849,18 +858,19 @@ def test_rotate_logs_roundtrip():
 # ------------------------------------------------------------ schedule
 
 
-def test_install_cron_global_entry(monkeypatch):
+def test_install_cron_global_entry(tmp_path, monkeypatch):
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('[factory]\nschedule-at = "17 1"\nschedule-max-orders = 2\n')
+    monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
     monkeypatch.setattr(schedule, "current_crontab", lambda: "")
     captured = {}
     monkeypatch.setattr(schedule, "set_crontab",
                         lambda content: captured.update(content=content))
-    monkeypatch.setattr(schedule.shutil, "which",
-                        lambda name: f"/usr/bin/{name}"
-                        if name in ("pi", "moonlighting") else None)
-    schedule.install_cron(at="17 1", max_orders=2)
+    monkeypatch.setattr(schedule.shutil, "which", lambda name: "/usr/bin/x")
+    schedule.install_cron()
     entry = captured["content"].strip().splitlines()[0]
     assert entry.startswith("17 1 * * * ")
-    assert "'/usr/bin/moonlighting' night --engine pi" in entry
+    assert "'/usr/bin/x' night --engine pi" in entry
     assert "--max-orders 2" in entry
     assert str(factory.data_dir() / "logs" / "cron.log") in entry
     assert schedule.TAG in entry
@@ -1092,7 +1102,26 @@ def test_qa_pass_extracts_with_the_order_engine(tmp_path, monkeypatch):
     assert moved is False
 
 
-def test_schedule_at_validation(monkeypatch):
-    monkeypatch.setattr(schedule.shutil, "which", lambda name: None)
+def test_reply_parks_review_and_answers_blocked():
+    orders = factory.orders_dir()
+    orders.mkdir(parents=True)
+    (orders / "a1b2c3d-r.md").write_text(
+        ORDER.replace("status: draft", "status: review"))
+    r = run_module("reply", "a1b2c3d", "add tests")
+    assert r.returncode == 0, r.stderr
+    text = (orders / "a1b2c3d-r.md").read_text()
+    assert "status: blocked" in text
+    assert "review \u2192 blocked: add tests" in text
+    r2 = run_module("reply", "a1b2c3d", "done, go")
+    assert r2.returncode == 0, r2.stderr
+    text2 = (orders / "a1b2c3d-r.md").read_text()
+    assert "status: approved" in text2
+    assert "blocked \u2192 approved: done, go" in text2
+
+
+def test_schedule_at_validation(tmp_path, monkeypatch):
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('[factory]\nschedule-at = "99 99"\n')
+    monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
     with pytest.raises(factory.FactoryError):
-        schedule.install_cron(at="99 99")
+        schedule.install_cron()

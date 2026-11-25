@@ -22,8 +22,13 @@ from . import factory
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Gzip old night logs into logs/archive/ (never deletes).")
-    ap.add_argument("--days", type=int, default=90,
-                    help="rotate files older than this many days (default: 90)")
+    try:
+        days_default = int(factory.factory_setting("rotate-days") or 90)
+    except (TypeError, ValueError):
+        factory.die("config rotate-days must be an integer", 2)
+    ap.add_argument("--days", type=int, default=days_default,
+                    help="rotate files older than this many days "
+                         "(default: config rotate-days, or 90)")
     ap.add_argument("--write", action="store_true",
                     help="perform the rotation (default: preview only)")
     args = ap.parse_args()

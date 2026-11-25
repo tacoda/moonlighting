@@ -20,8 +20,8 @@ STATUS_STYLE = {"approved": "green", "review": "yellow", "blocked": "red",
                 "draft": "cyan", "done": "dim", "rejected": "dim"}
 
 HINTS = {
-    "review": "moonlighting accept ID, or moonlighting feedback ID with changes",
-    "blocked": "moonlighting answer ID with your reply",
+    "review": "accept ID ships a PR. reply ID with changes parks it",
+    "blocked": "reply ID with your answer; it re-approves",
     "approved": "runs on the next night",
     "draft": "moonlighting approve ID when ready",
 }
@@ -50,8 +50,9 @@ def show_locks(locks: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Factory floor report.")
-    ap.add_argument("--repo", default=None,
-                    help="only show orders for this repo (name or path)")
+    ap.add_argument("--repo", default=factory.factory_setting("repo") or None,
+                    help="only show orders for this repo (name or path; "
+                         "default: config repo)")
     ap.add_argument("--json", action="store_true",
                     help="print the orders as JSON, for tools")
     args = ap.parse_args()

@@ -10,6 +10,9 @@ qa-model = ""            # optional, empty means the order model
 plan-model = ""          # empty skips the pass
 orders-dir = ""          # optional, empty means <data dir>/orders
                          # (~/.local/share/moonlighting/orders)
+repo = ""
+max-orders = 1
+rotate-days = 90
 
 # Profiles hold one identity each. Bind a profile to a repo from the
 # [repo.NAME] sections. Every key is optional: leave out what you do not
