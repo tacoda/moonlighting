@@ -7,6 +7,7 @@ plain python children.
 
 import contextlib
 import gzip
+import json
 import os
 import re
 import subprocess
@@ -319,6 +320,17 @@ def test_config_extends_harness(tmp_path, monkeypatch):
     argv, ref, stdin_text = eng.build_command(SYSTEM, PROMPT, "x", None)
     assert argv[:3] == ["crew-chat", "run", "--headless"]
     assert stdin_text == f"{SYSTEM}\n\n---\n\n{PROMPT}"
+
+
+def test_status_json_branch_name():
+    orders = factory.orders_dir()
+    orders.mkdir(parents=True)
+    (orders / "aaa1111-d.md").write_text(
+        ORDER.replace("status: draft", "status: review"))
+    r = run_module("status", "--json")
+    items = json.loads(r.stdout)
+    assert items[0]["branch"] == "wo/aaa1111"
+    assert items[0]["status"] == "review"
 
 
 def test_opencode_command_new_session():

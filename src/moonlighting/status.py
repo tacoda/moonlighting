@@ -85,26 +85,28 @@ def main() -> None:
         state = ""
         if repo is not None and order.status in ("approved", "review", "blocked"):
             state = branch_state(repo, order.branch)
-        rows.append((order.id, order.title, order.status, target, state))
+        rows.append((order.id, order.title, order.status, target, state,
+                     order.branch))
         if order.status in ("done", "rejected"):
             closed += 1
 
     if args.json:
-        keys = ("id", "title", "status", "target", "branch")
-        print(json.dumps([dict(zip(keys, row)) for row in rows]))
+        items = [{"id": r[0], "title": r[1], "status": r[2],
+                  "target": r[3], "branch": r[5]} for r in rows]
+        print(json.dumps(items))
         return
 
     if rows:
         table = Table(show_header=True, header_style="bold")
         for col in ("id", "title", "status", "target", "branch"):
             table.add_column(col)
-        for oid, title, status, target, state in rows:
+        for oid, title, status, target, state, _b in rows:
             style = STATUS_STYLE.get(status, "")
             table.add_row(oid, title,
                           f"[{style}]{status}[/{style}]" if style else status,
                           target, state)
         console.print(table)
-        for oid, _t, status, _tg, _st in rows:
+        for oid, _t, status, _tg, _st, _b in rows:
             hint = HINTS.get(status)
             if hint:
                 console.print(f"[dim]{oid}: {hint}[/dim]")
