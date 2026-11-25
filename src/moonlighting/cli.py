@@ -90,8 +90,17 @@ def feedback_cmd(ctx: typer.Context,
 
 @app.command("init", help="Report the bundled nWave guard, then set up "
              "the config file and the data dirs.", context_settings=FORWARD)
-def init_cmd(ctx: typer.Context):
-    _forward(ctx, "setup")
+def init_cmd(ctx: typer.Context,
+             cron: bool | None = typer.Option(
+                 None, "--cron/--no-cron",
+                 help="Install the nightly cron without asking, or skip it "
+                 "without asking.")):
+    flags = []
+    if cron is True:
+        flags.append("--cron")
+    elif cron is False:
+        flags.append("--no-cron")
+    _forward(ctx, "setup", [], [(flag, True) for flag in flags])
 
 
 @app.command("lint-orders", help="Check every order file against the "

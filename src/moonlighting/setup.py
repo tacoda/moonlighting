@@ -1,11 +1,12 @@
 """moonlighting init — report the bundled nWave guard, then set up the
 user config and data dirs. Installing the guard per host stays manual:
-nwave-ai install --platform <host>, then nwave-ai mode all. Safe to
-rerun.
+nwave-ai install --platform <host>, then nwave-ai mode all. Pass --cron
+or --no-cron to answer the cron question up front. Safe to rerun.
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from importlib import metadata
 
@@ -23,6 +24,14 @@ engine = "pi"
 
 
 def main() -> None:
+    ap = argparse.ArgumentParser(description="Set up moonlighting.")
+    group = ap.add_mutually_exclusive_group()
+    group.add_argument("--cron", action="store_true",
+                       help="install the nightly cron without asking")
+    group.add_argument("--no-cron", action="store_true",
+                       help="skip the nightly cron without asking")
+    args = ap.parse_args()
+
     console.print("[bold]moonlighting init[/bold]")
 
     try:
@@ -48,7 +57,12 @@ def main() -> None:
         (data / sub).mkdir(parents=True, exist_ok=True)
     console.print(f"[green]data directory ready[/green] {data}")
 
-    if sys.stdin.isatty():
+    if args.cron:
+        schedule.install_cron()
+    elif args.no_cron:
+        console.print("cron skipped. Add it later with: "
+                      "moonlighting schedule install")
+    elif sys.stdin.isatty():
         answer = input("Install the nightly cron (00:01, idle nights cost "
                        "nothing)? [y/N] ")
         if answer.strip().lower() in ("y", "yes"):

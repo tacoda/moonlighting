@@ -1,6 +1,6 @@
 [project]
 name = "moonlighting-factory"
-version = "0.5.2"
+version = "0.5.3"
 description = "A software factory: people decide by day, agents type by night."
 readme = "README.md"
 license = "MIT"
