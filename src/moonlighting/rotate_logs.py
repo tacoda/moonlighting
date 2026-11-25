@@ -2,7 +2,7 @@
 """moonlighting rotate-logs — gzip old night logs, never delete them.
 
 Logs are the factory's append-only memory. This tool compresses log
-files older than --days into night-shift/logs/archive/ so the directory
+files older than --days into the data directory's logs/archive/ so the directory
 stays readable. Preview by default. Pass --write to rotate.
 
     moonlighting rotate-logs --days 90           # preview
@@ -28,8 +28,8 @@ def main() -> None:
                     help="perform the rotation (default: preview only)")
     args = ap.parse_args()
 
-    root = factory.repo_root()
-    logs = root / "night-shift" / "logs"
+    fl = factory.floor()
+    logs = fl["logs"]
     if not logs.is_dir():
         factory.die(f"no logs directory: {logs}")
     archive = logs / "archive"
@@ -40,7 +40,7 @@ def main() -> None:
         if not path.is_file() or path.stat().st_mtime >= cutoff:
             continue
         label = "rotated" if args.write else "would rotate"
-        print(f"{label}: {path.relative_to(root)}")
+        print(f"{label}: {path}")
         if not args.write:
             continue
         archive.mkdir(exist_ok=True)
@@ -53,13 +53,7 @@ def main() -> None:
     if not args.write:
         print(f"{rotated} file(s) old enough to rotate")
         return
-    if rotated:
-        factory.git(root, "add", "night-shift/logs")
-        factory.git(root, "commit", "-q", "-m",
-                    f"rotate-logs: archive {rotated} file(s) older than "
-                    f"{args.days} days")
-        print("rotation committed")
-    print(f"{rotated} file(s) rotated into {archive.relative_to(root)}")
+    print(f"{rotated} file(s) rotated into {archive}")
 
 
 if __name__ == "__main__":

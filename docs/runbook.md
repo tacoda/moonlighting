@@ -13,18 +13,14 @@
        nwave-ai install --platform opencode
        nwave-ai mode all
 
-4. Install the factory command: `uv tool install moonlighting-factory` — or run it
-   from a checkout with `uv run moonlighting ...` after `uv sync`. Add
-   `--dev` to work on a factory checkout instead of the global data dir.
-5. Make an initial commit: the night runner needs a clean tree on `main` with
-   at least one commit.
-6. Orders live in `work-orders/`, tracked in the factory repo. Set
-   `FACTORY_ORDERS_DIR` to point somewhere else.
-7. Per-user config: `~/.config/moonlighting/config.toml` on each machine
+4. Install the factory command: `uv tool install moonlighting-factory`.
+5. Orders live under `~/.local/share/moonlighting/orders/`. Set
+   `FACTORY_ORDERS_DIR` (or config `orders-dir`) to point somewhere else.
+6. Per-user config: `~/.config/moonlighting/config.toml` on each machine
    sets defaults for engine, models and orders dir, and binds repos to
    paths and identities. Sample: `docs/config-sample.toml`.
-8. Smoke-test: `moonlighting night --dry-run`
-9. When you trust the loop, let nights start themselves:
+7. Smoke-test: `moonlighting night --dry-run`
+8. When you trust the loop, let nights start themselves:
    `moonlighting schedule install [--engine pi|claude|opencode]`
    (fires nightly at 00:01, harmlessly no-ops on an empty queue, `remove`
    undoes it, `status` shows the entry).
@@ -67,7 +63,7 @@
 
 1. Factory floor clean (commit or stash — bookkeeping commits land there).
    Target repos don't need to be clean anymore: nights run in throwaway
-   worktrees (`night-shift/worktrees/`, removed after each run) and never
+   worktrees (`~/.local/share/moonlighting/worktrees/`, removed after each run) and never
    touch your working copies.
 2. `moonlighting night --dry-run [--repo R]` — preview tonight's queue.
 3. One factory process per repo; separate factory clones run in parallel:
@@ -109,9 +105,9 @@
 ## Forensics
 
 - Order file — every run's report plus the QA pre-shift verdict.
-- Raw agent output — `night-shift/logs/YYYY-MM-DD-wo-<id>.out.md` (+
+- Raw agent output — the data dir's `logs/YYYY-MM-DD-wo-<id>.out.md` (+
   `.err.log` on failures).
-- Night never started? `night-shift/logs/errors.log` holds pre-flight
+- Night never started? the data dir's `logs/errors.log` holds pre-flight
   failures: dirty floor, wrong branch, missing binary.
 - Full event streams — `night-shift/logs/*.events.jsonl` and `*.qa.jsonl`:
   every tool call, every token, archived. This is the factory's flight

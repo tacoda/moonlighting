@@ -13,12 +13,11 @@ def main() -> None:
     oid = sys.argv[1]
 
     fl = factory.floor()
-    base = fl["root"] or factory.data_dir()
     matches = sorted(fl["orders"].glob(f"{oid}*.md"))
     if len(matches) != 1:
         factory.die(f"expected exactly one order matching '{oid}*', "
                     f"found {len(matches)}")
-    order = factory.WorkOrder(matches[0], base)
+    order = factory.WorkOrder(matches[0])
     if order.status != "draft":
         factory.die(f"{order.id} is '{order.status}', not 'draft' — "
                     f"only drafts get approved")

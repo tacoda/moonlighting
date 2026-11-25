@@ -39,15 +39,13 @@ uv runs everything under the hood. Commands work through
 `uv run moonlighting ...` inside a factory checkout, or globally after
 `uv tool install moonlighting-factory`.
 
-## Modes
+## Layout
 
-The binary works globally out of the box. Config and a shared data
-directory live at `~/.config/moonlighting/` and
-`~/.local/share/moonlighting/`. No git repo is needed.
-
-Working on the factory itself? Run with `--dev` (or env
-`MOONLIGHTING_DEV=1`) inside the checkout. Dev mode reads that
-checkout's `work-orders/` and manuals instead of the global ones.
+The binary works globally out of the box. Config lives at
+`~/.config/moonlighting/config.toml`. State — orders, logs, locks,
+sessions, cloned target repos — lives under
+`~/.local/share/moonlighting/`. The night and QA manuals and the order
+template ship inside the package. No git checkout is needed anywhere.
 
 ## Config
 
@@ -62,39 +60,35 @@ your own names, repos and profiles. A commented sample lives at
 ## Layout
 
 ```text
-work-orders/            order files (tracked in the factory repo; FACTORY_ORDERS_DIR relocates it)
-night-shift/NIGHT-SHIFT.md   the night agent's operating manual
-night-shift/QA-SHIFT.md      the QA pre-shift reviewer's manual
-night-shift/logs/       run reports, QA packets, event streams, morning digest (append-only)
-night-shift/sessions.json   engine session ids per order (local state, gitignored)
-night-shift/locks/      run locks (gitignored)
-night-shift/worktrees/  per-run worktrees of target repos (gitignored, removed after each run)
-repos/                  target repos cloned from git URLs (gitignored)
-src/moonlighting/       the library; every workflow is a moonlighting subcommand
-bin/                    misc scripts (the factory greeting)
-docs/work-order-template.md  how orders are written
+src/moonlighting/       the package: factory model, workflows, engines,
+                        manuals/ (NIGHT-SHIFT.md, QA-SHIFT.md),
+                        templates/ (work-order-template.md)
+tests/                  fake-based pytest suite (no git repos needed)
 docs/runbook.md         shift checklists (morning, handover, forensics)
 docs/flow.md            mermaid diagrams: the day/night work flow
+docs/config-sample.toml every config key, commented
+docs/work-order-template.md  how orders are written (reference copy)
+work-orders/            archived orders from the repo's pre-package era
 PLAN.md                 phased roadmap
-tests/                  pytest suite for the factory scripts
-pyproject.toml          uv project; publishes the factory command
+pyproject.toml          uv project; publishes the moonlighting command
 AGENTS.md               standing instructions for any agent in this repo
 ```
 
 ## The rules
 
 - The night shift executes only `approved` orders, each on its own branch (`wo/<id>`).
-- Only the day shift merges code into `main` (squash, via `moonlighting accept ID`).
-  Night bookkeeping (order files, run logs) commits straight to `main` — but
-  never contains code. Order files live in `work-orders/`, tracked.
-  `FACTORY_ORDERS_DIR` relocates them.
+- Only the day shift merges code into a target repo's `main` (squash, via
+  `moonlighting accept ID`). The factory never pushes. Run reports, QA
+  packets and order status flips land under the data directory, never in
+  anyone's repo.
 - A blocked or ambiguous order stops the agent. It asks; it never guesses.
 - The night shift produces **options, not answers**: when the problem is
   unknown, an order asks for variants, and the day shift decides among them.
-- Orders can target other repos: `repo:` frontmatter takes a path or a git
-  URL (URLs are cloned under `repos/` and refreshed each night). Night work
+- Orders can target other repos. The `repo:` frontmatter takes a config
+  binding name, a path, or a git URL. URLs are cloned under the data
+  directory and refreshed each night. Night work
   happens in a throwaway git worktree of the target repo — your working
-  copies are never switched or touched; only the day shift merges there, and
+  copies are never switched or touched. Only the day shift merges there, and
   the factory never pushes.
 
 ## Engines
@@ -104,8 +98,8 @@ Three hosts run the same work orders through the same flow:
 | engine | headless invocation | sessions | model syntax |
 | --- | --- | --- | --- |
 | pi (default) | `pi --print` | deterministic: `wo-<id>` | `provider/id`, optional `:thinking` |
-| claude | `claude -p` | uuid per order, kept in `night-shift/sessions.json` | alias or full model id |
-| opencode | `opencode run` | host picks the id (`ses_...`), kept in `night-shift/sessions.json` | `provider/model#variant` |
+| claude | `claude -p` | uuid per order, kept in the data dir's `sessions.json` | alias or full model id |
+| opencode | `opencode run` | host picks the id (`ses_...`), kept in the data dir's `sessions.json` | `provider/model#variant` |
 
 Pick per run with `--engine` (or `FACTORY_ENGINE`). All three run under the
 nWave tool-call guard (`nwave-ai mode all`). Agent commits carry nWave
@@ -122,42 +116,30 @@ The QA pass can run its own model. Use `--qa-model` (or env
 Every run is double-checked by default:
 
 - **JSON audit** — the engine's full event stream is archived to
-  `night-shift/logs/*.events.jsonl`; the final report is extracted from it.
+  the data dir's `logs/*.events.jsonl`. The final report is extracted from it.
   Opt out with `FACTORY_JSON_AUDIT=0`.
 - **QA pre-shift** — a second agent pass reviews the night's diff against the
   acceptance criteria and writes a verdict (SHIP/BLOCK/UNSURE) into the order
   file, so the morning decision takes minutes. Opt out with `FACTORY_QA=0`.
 
-## Several factories, several repos
+## Parallel nights
 
-One factory process per target repo; processes run in parallel:
-
-```bash
-factory night --repo ~/repos/shop
-factory night --repo git@github.com:acme/api.git --engine claude
-```
-
-Locks make collisions visible: one night per target repo, one night per
-factory checkout. For true parallel nights, clone this factory once per repo
-and run one process in each:
+One night process runs per target repo. Processes run in parallel:
 
 ```bash
-git clone ~/repos/moonlighting ~/factories/shop-factory
-cd ~/factories/shop-factory
-factory night --repo ~/repos/shop
-# in another terminal, another clone, another repo, same time — no conflict
+moonlighting night --repo ~/repos/shop
+moonlighting night --repo git@github.com:acme/api.git --engine claude
 ```
 
-The morning is still one command per factory:
-
-```bash
-factory status
-```
+Locks make collisions visible. One lock guards each target repo, plus one
+global night lock. Run the processes side by side from the same install.
+No extra checkouts, no conflicts.
 
 ## Requirements
 
-- git, Python 3.9+, and [uv](https://docs.astral.sh/uv/). The factory code
-  is stdlib-only. uv runs everything: `uv sync` installs the `moonlighting`
+- git, Python 3.11+, and [uv](https://docs.astral.sh/uv/). The package
+depends only on `rich` and `typer`. uv runs everything: `uv sync` installs
+the `moonlighting`
   command into the checkout, `uv run pytest` runs the suite. Publish to
   PyPI with `uv build` and `uv publish`.
 - the host CLI for your selected engine, logged in. Pick [pi](https://pi.dev)

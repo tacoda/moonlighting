@@ -17,12 +17,11 @@ def main() -> None:
     message = " ".join(sys.argv[2:])
 
     fl = factory.floor()
-    base = fl["root"] or factory.data_dir()
     matches = sorted(fl["orders"].glob(f"{oid}*.md"))
     if len(matches) != 1:
         factory.die(f"expected exactly one order matching '{oid}*', "
                     f"found {len(matches)}")
-    order = factory.WorkOrder(matches[0], base)
+    order = factory.WorkOrder(matches[0])
 
     if order.status != "review":
         factory.die(f"{order.id} is '{order.status}', not 'review' — "

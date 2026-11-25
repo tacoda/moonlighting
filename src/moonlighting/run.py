@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """moonlighting night — execute approved work orders headlessly.
 
-Each order names its target repo via the `repo:` frontmatter field (default:
-this factory; a path or git URL points elsewhere — URLs are cloned under
-repos/). The agent works on the order's branch inside a throwaway git
-worktree, so the target's own working copy is never switched or touched;
-the runner does all bookkeeping (status flips, logs) in the factory repo.
+Each order names its target repo via the `repo:` frontmatter field (a
+config binding name, a path, or a git URL — URLs are cloned under the data
+directory). The agent works on the order's branch inside a throwaway git
+worktree, so the target's own working copy is never switched or touched.
+The runner keeps status flips and logs under the data directory.
 
-Run one factory process per target repo — locks make double-running visible.
+Run one night process per target repo — locks make double-running visible.
 See docs/runbook.md.
 """
 
@@ -29,19 +29,18 @@ class NightRun:
     """One night shift: collect the approved queue, execute it under locks,
     bookkeep in the factory repo."""
 
-    def __init__(self, root: Path, engine_name: str, repo_filter: str | None,
+    def __init__(self, fl: dict, engine_name: str, repo_filter: str | None,
                  max_orders: int, dry_run: bool, timeout_secs: int,
                  model: str | None = None, qa_model: str | None = None):
-        self.root = root
-        os.chdir(root)
+        self.fl = fl
         self.engine_name = engine_name
         self.engine = factory.engine(engine_name)
         self.model = model
         self.qa_model = qa_model
-        self.orders = factory.orders_dir(root)
+        self.orders = fl["orders"]
         self.dry_run = dry_run
         self.update = not dry_run
-        self.repo_filter = (factory.TargetRepo.resolve(root, repo_filter,
+        self.repo_filter = (factory.TargetRepo.resolve(repo_filter,
                                                        update=self.update)
                             if repo_filter else None)
         if repo_filter and self.repo_filter is None:
@@ -49,15 +48,14 @@ class NightRun:
         self.max_orders = max_orders
         self.timeout_secs = timeout_secs
 
-        self.logs = root / "night-shift" / "logs"
+        self.logs = fl["logs"]
         self.logs.mkdir(parents=True, exist_ok=True)
         self.today = f"{datetime.now():%Y-%m-%d}"
         self.run_log = self.logs / f"{self.today}.md"
-        self.worktrees = root / "night-shift" / "worktrees"
-        self.sessions = factory.SessionStore(
-            root / "night-shift" / "sessions.json")
-        self.system_prompt = (root / "night-shift" / "NIGHT-SHIFT.md").read_text()
-        self.qa_system_prompt = (root / "night-shift" / "QA-SHIFT.md").read_text()
+        self.worktrees = fl["worktrees"]
+        self.sessions = factory.SessionStore(fl["sessions"])
+        self.system_prompt = fl["manual"].read_text()
+        self.qa_system_prompt = fl["qa"].read_text()
         self.json_audit = os.environ.get("FACTORY_JSON_AUDIT", "1") != "0"
         self.qa_enabled = os.environ.get("FACTORY_QA", "1") != "0"
 
@@ -71,13 +69,16 @@ class NightRun:
         problems: list = []
         skipped = 0
         for path in sorted(self.orders.glob("*.md")):
-            order = factory.WorkOrder(path, self.root)
+            order = factory.WorkOrder(path)
             if order.status != "approved":
                 continue
             trouble: list[str] = order.lint()
             repo = None
-            if not trouble:
-                repo = factory.TargetRepo.resolve(self.root, order.repo_value,
+            if not trouble and not order.repo_value:
+                trouble = ["repo: this order names no target repo — bind it "
+                           "in the config or set repo: <path-or-url>"]
+            elif not trouble:
+                repo = factory.TargetRepo.resolve(order.repo_value,
                                                   update=self.update, soft=True)
                 if repo is None:
                     # soft resolve. The clone failed or the path is not a
@@ -107,10 +108,10 @@ class NightRun:
             print("nothing approved for this repo — nothing to do tonight.")
             others = []
             for path in sorted(self.orders.glob("*.md")):
-                order = factory.WorkOrder(path, self.root)
+                order = factory.WorkOrder(path)
                 if order.status != "approved":
                     continue
-                target = order.repo_value or "this factory"
+                target = order.repo_value or "(no target repo)"
                 others.append(f"  {order.id}  {order.title}  ->  {target}")
             if others:
                 print("approved orders exist for other repos:")
@@ -130,16 +131,12 @@ class NightRun:
             print(f"{skipped} malformed approved order(s) skipped under "
                   f"--repo — run without --repo to block them")
 
-        # lint blocks cost no tokens and stop nothing: block them all in
-        # one commit, then run the healthy queue
+        # lint blocks cost no tokens and stop nothing: block them all
+        # before running the healthy queue
         blocked: list[str] = []
         for order, trouble in problems:
             self._block_order(order, trouble)
             blocked.append(order.id)
-        if blocked:
-            factory.git(self.root, "add", "-A")
-            factory.git(self.root, "commit", "-q", "-m",
-                        f"night-shift: lint-block {len(blocked)} order(s)")
 
         ran = 0
         failed: str | None = None
@@ -153,18 +150,12 @@ class NightRun:
                 break
 
         self._write_morning_digest()
-        digest_path = self.logs / f"{self.today}-morning.md"
-        if (digest_path.exists() and factory.git_out(
-                self.root, "status", "--porcelain", "--", "night-shift/logs")):
-            factory.git(self.root, "add", "night-shift/logs")
-            factory.git(self.root, "commit", "-q", "-m",
-                        f"night-shift: morning digest ({self.today})")
 
         print(f"\nnight shift over: {ran} order(s) processed"
               + (f", {len(blocked)} blocked by lint" if blocked else "") + ".")
         if failed:
             print(f"wo-{failed} is blocked — run stopped. See {self.run_log}")
-        print("morning: python3 day-shift/status.py")
+        print("morning: moonlighting status")
 
     # ------------------------------------------------------- per-order flow
 
@@ -174,7 +165,7 @@ class NightRun:
 
         # the night runs in a throwaway worktree of the target repo, under a
         # lock; the target's own working copy is never switched
-        with factory.Lock(self.root / "night-shift" / "locks",
+        with factory.Lock(self.fl["locks"],
                           repo.slug(), f"repo {repo.display()}"):
             started = time.monotonic()
             rc, report, raw_events, run_err, secs = 0, "", "", "", 0
@@ -252,7 +243,7 @@ class NightRun:
             env = repo.env()
             factory.git(wt_path, "add", "-A")
             factory.git(wt_path, "commit", "-q", "-m",
-                        f"wo-{order_id}: night-shift WIP (auto-committed by runner)",
+                        f"wo-{order_id}: WIP sweep (auto-committed by the runner)",
                         env=env)
             print(f"note: uncommitted work was auto-committed to {branch}")
 
@@ -337,7 +328,7 @@ class NightRun:
         if rc != 0:
             note = f"\n> run FAILED (exit {rc})."
             if run_err:
-                note += f" stderr: {errfile.relative_to(self.root)}\n"
+                note += f" stderr: {errfile.name}\n"
             order.append(note + "\n")
         if qa_rc is not None:
             order.append(f"\n---\n\n### QA pre-shift "
@@ -356,18 +347,7 @@ class NightRun:
                     f"{new_status}, engine {self.engine_name}{model_note}, "
                     f"exit {rc}{qa_note}, "
                     f"{secs}s — report in order file; "
-                    f"raw: {outfile.relative_to(self.root)}\n")
-
-        # night bookkeeping: the order file and the logs commit together.
-        # A relocated orders dir belongs to the user, so only the default
-        # location gets committed here.
-        add_paths = ["night-shift/logs"]
-        if self.orders == self.root / "work-orders":
-            add_paths.insert(0, str(order.rel))
-        factory.git(self.root, "add", *add_paths)
-        factory.git(self.root, "commit", "-q", "-m",
-                    f"night-shift: wo-{order.id} -> {new_status} "
-                    f"(exit {rc}, {secs}s)")
+                    f"raw: {outfile.name}\n")
 
         print(f"wo-{order.id} -> {new_status} "
               f"({secs // 60}m{secs % 60:02d}s)")
@@ -378,7 +358,7 @@ class NightRun:
         order with its latest QA verdict."""
         rows = []
         for path in sorted(self.orders.glob("*.md")):
-            order = factory.WorkOrder(path, self.root)
+            order = factory.WorkOrder(path)
             if order.status not in ("review", "blocked"):
                 continue
             qa = ""
@@ -397,7 +377,7 @@ class NightRun:
         digest = self.logs / f"{self.today}-morning.md"
         digest.write_text(f"# morning digest — {stamp}\n\n"
                           + "\n".join(rows) + "\n")
-        print(f"morning digest: {digest.relative_to(self.root)}")
+        print(f"morning digest: {digest}")
 
     # ------------------------------------------------------------- helpers
 
@@ -434,19 +414,14 @@ def main() -> None:
         timeout_secs = int(os.environ.get("NIGHT_TIMEOUT_SECS", "7200"))
     except ValueError:
         factory.die("NIGHT_TIMEOUT_SECS must be an integer (seconds)", 2)
-    root = factory.repo_root()
-    orders = factory.orders_dir(root)
+    fl = factory.floor()
+    orders = fl["orders"]
     if not orders.is_dir():
         factory.die(f"no work orders directory: {orders} — create it or set "
                     f"FACTORY_ORDERS_DIR")
-    if (branch := factory.git_out(root, "branch", "--show-current")) != "main":
-        factory.die(f"start the night shift from main (you are on: {branch})")
-    if not factory.clean_tree(root):
-        factory.die("working tree must be clean before the night shift (commit or stash)")
 
-    locks = root / "night-shift" / "locks"
-    with factory.Lock(locks, "factory", f"factory checkout {root}"):
-        NightRun(root, args.engine, args.repo, args.max_orders,
+    with factory.Lock(fl["locks"], "night", "the night shift"):
+        NightRun(fl, args.engine, args.repo, args.max_orders,
                  args.dry_run, timeout_secs, args.model, args.qa_model).run()
 
 
@@ -457,7 +432,7 @@ if __name__ == "__main__":
         # Pre-flight failures leave nothing else behind. Give them a fixed,
         # gitignored home next to the run logs.
         with contextlib.suppress(Exception):
-            log = factory.repo_root() / "night-shift" / "logs" / "errors.log"
+            log = factory.data_dir() / "logs" / "errors.log"
             log.parent.mkdir(parents=True, exist_ok=True)
             stamp = f"{datetime.now():%Y-%m-%d %H:%M}"
             with log.open("a") as f:

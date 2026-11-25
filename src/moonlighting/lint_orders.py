@@ -18,7 +18,6 @@ from . import factory
 
 def main() -> None:
     fl = factory.floor()
-    base = fl["root"] or factory.data_dir()
     files = sorted(fl["orders"].glob("*.md"))
     if not files:
         print("no work orders")
@@ -27,7 +26,7 @@ def main() -> None:
     seen: dict[str, str] = {}
     bad = 0
     for f in files:
-        order = factory.WorkOrder(f, base)
+        order = factory.WorkOrder(f)
         problems = order.lint()
         if order.id:
             if order.id in seen:

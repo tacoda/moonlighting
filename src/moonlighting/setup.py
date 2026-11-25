@@ -8,17 +8,18 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 
 from rich.console import Console
 
-from . import factory
+from . import factory, schedule
 
 console = Console()
 
 PLATFORMS = {"pi": "pi", "claude": "claude-code", "opencode": "opencode"}
 
 STARTER_CONFIG = """\
-# moonlighting config. Full sample: docs/config-sample.toml
+# moonlighting config — see the README for every key.
 [factory]
 engine = "pi"
 """
@@ -62,6 +63,15 @@ def main() -> None:
     for sub in ("orders", "logs"):
         (data / sub).mkdir(parents=True, exist_ok=True)
     console.print(f"[green]data directory ready[/green] {data}")
+
+    if sys.stdin.isatty():
+        answer = input("Install the nightly cron (00:01, idle nights cost "
+                       "nothing)? [y/N] ")
+        if answer.strip().lower() in ("y", "yes"):
+            schedule.install_cron()
+    else:
+        console.print("non-interactive: add the cron later with "
+                      "`moonlighting schedule install`")
 
     console.print("next steps:")
     console.print(f"  edit the config: {cfg}")

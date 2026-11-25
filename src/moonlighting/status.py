@@ -54,31 +54,29 @@ def main() -> None:
     args = ap.parse_args()
 
     fl = factory.floor()
-    base = fl["root"] or factory.data_dir()
-    orders = Path(fl["orders"])
+    orders = fl["orders"]
 
-    console.print(f"[bold]factory floor[/bold] — {datetime.now():%Y-%m-%d %H:%M} "
-                  f"[dim]({fl['mode']} mode)[/dim]")
+    console.print(f"[bold]factory floor[/bold] — {datetime.now():%Y-%m-%d %H:%M}")
     show_locks(fl["locks"])
 
     filter_repo = None
     if args.repo:
-        filter_repo = factory.TargetRepo.resolve(base, args.repo,
+        filter_repo = factory.TargetRepo.resolve(args.repo,
                                                  update=False, soft=True)
 
     rows = []
     closed = 0
     for path in sorted(orders.glob("*.md")):
-        order = factory.WorkOrder(path, base)
+        order = factory.WorkOrder(path)
         repo = None
-        if order.repo_value not in ("", "self"):
-            repo = factory.TargetRepo.resolve(base, order.repo_value,
+        if order.repo_value:
+            repo = factory.TargetRepo.resolve(order.repo_value,
                                               update=False, soft=True)
         if filter_repo is not None and (repo is None
                                         or repo.path != filter_repo.path):
             continue
-        target = repo.display() if repo else "this factory"
-        if repo is None and order.repo_value not in ("", "self"):
+        target = repo.display() if repo else "(no target repo)"
+        if repo is None and order.repo_value:
             target = f"missing: {order.repo_value}"
         state = ""
         if repo is not None and order.status in ("approved", "review", "blocked"):
@@ -101,12 +99,9 @@ def main() -> None:
             hint = HINTS.get(status)
             if hint:
                 console.print(f"[dim]{oid}: {hint}[/dim]")
-    elif fl["mode"] == "global":
+    else:
         console.print(f"no orders in {orders}. "
                       "Create one with `moonlighting new-order`.")
-    else:
-        factory.die(f"no work orders directory: {orders} — create it or set "
-                    f"FACTORY_ORDERS_DIR")
 
     if closed:
         console.print(f"[dim]{closed} closed (done or rejected)[/dim]")

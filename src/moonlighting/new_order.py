@@ -71,11 +71,8 @@ def main() -> None:
         if model is None:
             model = ask("model for the engine (enter for the host default): ") or None
 
-    root = factory.repo_root()
-    orders = factory.orders_dir(root)
-    template = root / "docs" / "work-order-template.md"
-    if not template.is_file():
-        factory.die(f"missing template: {template}")
+    orders = factory.orders_dir()
+    template = factory.packaged_template()
     orders.mkdir(parents=True, exist_ok=True)
 
     taken = {path.name.split("-")[0] for path in orders.glob("*.md")}
@@ -110,9 +107,9 @@ def main() -> None:
         factory.die(f"file already exists: {dest}")
     dest.write_text(text)
 
-    order = factory.WorkOrder(dest, root)
+    order = factory.WorkOrder(dest)
     problems = order.lint()
-    print(f"created {dest.relative_to(root)} (id {oid}, branch wo/{oid})")
+    print(f"created {dest} (id {oid}, branch wo/{oid})")
     if problems:
         for p in problems:
             print(f"  - {p}")

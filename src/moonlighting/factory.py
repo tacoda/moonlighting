@@ -9,7 +9,7 @@ Classes:
     Lock           — a run lock file (context manager, stale-breaking)
     SessionStore   — engine session ids per order (claude engine)
 
-Module-level helpers remain for repo plumbing: repo_root, git, git_out,
+Module-level helpers remain for git plumbing: git, git_out,
 clean_tree, parse_order, set_status, die.
 """
 
@@ -73,22 +73,6 @@ def repo_binding(value: str) -> dict:
 # ----------------------------------------------------------- repo plumbing
 
 
-def repo_root() -> Path:
-    try:
-        out = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
-        ).stdout.strip()
-    except subprocess.CalledProcessError:
-        die("not inside a git repository")
-    return Path(out)
-
-
-def dev_mode() -> bool:
-    """Dev mode works on a factory checkout under the current directory."""
-    return bool(os.environ.get("MOONLIGHTING_DEV"))
-
-
 def data_dir() -> Path:
     """Global mode state: orders, logs, locks and sessions live here."""
     override = os.environ.get("MOONLIGHTING_DATA")
@@ -102,58 +86,35 @@ def packaged_manual(name: str) -> Path:
 
 
 def floor() -> dict:
-    """Resolve every location for the current mode.
-
-    Dev mode (MOONLIGHTING_DEV, or --dev) works on the factory checkout in
-    the current directory. Global mode (default) uses the user config and
-    the shared data directory. No git repo is required there."""
-    if dev_mode():
-        root = repo_root()
-        night_dir = root / "night-shift"
-        manual = night_dir / "NIGHT-SHIFT.md"
-        if not manual.is_file():
-            manual = packaged_manual("NIGHT-SHIFT.md")
-        qa = night_dir / "QA-SHIFT.md"
-        if not qa.is_file():
-            qa = packaged_manual("QA-SHIFT.md")
-        return {"mode": "dev", "root": root,
-                "orders": root / "work-orders",
-                "night_dir": night_dir, "manual": manual, "qa": qa,
-                "logs": night_dir / "logs",
-                "worktrees": night_dir / "worktrees",
-                "locks": night_dir / "locks",
-                "sessions": night_dir / "sessions.json",
-                "tracked": True}
+    """Resolve every location. State lives under the data directory; the
+    manuals and the order template ship inside the package."""
     data = data_dir()
     cfg = load_config().get("factory", {})
     orders = Path(cfg.get("orders-dir") or data / "orders").expanduser()
     manuals_dir = cfg.get("manuals-dir")
     if manuals_dir:
         mdir = Path(manuals_dir).expanduser()
-        manual = mdir / "NIGHT-SHIFT.md"
-        qa = mdir / "QA-SHIFT.md"
+        manual, qa = mdir / "NIGHT-SHIFT.md", mdir / "QA-SHIFT.md"
     else:
         manual = packaged_manual("NIGHT-SHIFT.md")
         qa = packaged_manual("QA-SHIFT.md")
-    return {"mode": "global", "root": None, "orders": orders,
-            "night_dir": data, "manual": manual, "qa": qa,
+    return {"orders": orders, "manual": manual, "qa": qa,
             "logs": data / "logs", "worktrees": data / "worktrees",
-            "locks": data / "locks", "sessions": data / "sessions.json",
-            "tracked": False}
+            "locks": data / "locks", "sessions": data / "sessions.json"}
 
 
-def orders_dir(root: Path | None = None) -> Path:
-    """Orders directory for the current mode. FACTORY_ORDERS_DIR and
-    config [factory] orders-dir override the default."""
+def orders_dir() -> Path:
+    """Orders directory. FACTORY_ORDERS_DIR and config [factory]
+    orders-dir override the default under the data directory."""
     override = os.environ.get("FACTORY_ORDERS_DIR") or factory_setting("orders-dir")
     if override:
-        p = Path(override).expanduser()
-        if not p.is_absolute() and root is not None:
-            p = root / p
-        return p
-    if root is not None:
-        return root / "work-orders"
+        return Path(override).expanduser()
     return data_dir() / "orders"
+
+
+def packaged_template() -> Path:
+    return Path(str(resources.files("moonlighting").joinpath(
+        "templates", "work-order-template.md")))
 
 
 def git(cwd: Path, *args: str, check: bool = True,
@@ -421,15 +382,14 @@ def engine(name: str) -> Engine:
 class WorkOrder:
     """One work-order markdown file: fields, status transitions, lint."""
 
-    def __init__(self, path: Path, root: Path):
+    def __init__(self, path: Path):
         self.path = path
-        self.root = root
         self.fields = parse_order(path)
 
     @property
     def rel(self) -> str:
         try:
-            return str(self.path.relative_to(self.root))
+            return str(self.path.relative_to(data_dir()))
         except ValueError:
             return self.path.name
 
@@ -506,9 +466,11 @@ class WorkOrder:
         if model and re.search(r"\s", model):
             problems.append(f"model: '{model}' contains whitespace")
         repo = self.repo_value
-        if (repo and repo != "self" and not is_repo_url(repo)
-                and TargetRepo.resolve(self.root, repo, update=False,
-                                       soft=True) is None):
+        if repo == "self":
+            problems.append("repo: 'self' named no target — bind the repo "
+                            "in the config or use a path or URL")
+        elif (repo and not is_repo_url(repo)
+              and TargetRepo.resolve(repo, update=False, soft=True) is None):
             problems.append(f"repo: '{repo}' is not a git repository")
 
         body: dict[str, list[str]] = {}
@@ -535,28 +497,29 @@ class TargetRepo:
     """A resolved target repository: the factory itself, a local path, or a
     URL clone living under <factory>/repos/."""
 
-    def __init__(self, path: Path, root: Path | None = None,
-                 profile_name: str = ""):
+    def __init__(self, path: Path, profile_name: str = ""):
         self.path = path
-        self.root = root or path
         self.profile_name = profile_name
 
     @classmethod
-    def resolve(cls, root: Path, repo_value: str | None,
+    def resolve(cls, repo_value: str | None,
                 update: bool = True, soft: bool = False) -> TargetRepo | None:
-        """Resolve an order's `repo:` field. None/"self" -> the factory; a
-        path -> that working tree; a git URL -> cloned under repos/ and
-        refreshed (update=True). soft=True returns None instead of failing."""
+        """Resolve an order's `repo:` field: a config binding name, a path,
+        or a git URL (cloned under the data dir and refreshed when
+        update=True). soft=True returns None instead of failing."""
         if not repo_value or repo_value == "self":
-            return cls(root, root)
-        repos_dir = root / "repos"
+            if soft:
+                return None
+            die("repo: this order names no target repo — bind the repo in "
+                "the config or set repo: <path-or-url>")
+        repos_dir = data_dir() / "repos"
         prof = repo_binding(repo_value).get("profile", "")
         if is_repo_url(repo_value):
             name = repo_value.rstrip("/").split("/")[-1].removesuffix(".git")
             target = repos_dir / name
             if target.exists():
                 wanted = repo_value.rstrip("/").removesuffix(".git")
-                r = git(root, "-C", str(target), "remote", "get-url",
+                r = git(repos_dir, "-C", str(target), "remote", "get-url",
                         "origin", check=False)
                 remote = r.stdout.strip().rstrip("/").removesuffix(".git")
                 if remote != wanted:
@@ -566,24 +529,23 @@ class TargetRepo:
                         return None
                     die(msg)
                 if update:
-                    git(root, "-C", str(target),
+                    git(repos_dir, "-C", str(target),
                         "fetch", "--quiet", "--all", "--prune")
-                return cls(target, root, profile_name=prof)
+                return cls(target, profile_name=prof)
             if not update:
                 return None
             repos_dir.mkdir(parents=True, exist_ok=True)
             print(f"cloning {repo_value} -> repos/{name}")
-            r = git(root, "clone", "--quiet", repo_value, str(target), check=False)
+            r = git(repos_dir, "clone", "--quiet", repo_value, str(target),
+                    check=False)
             if r.returncode != 0:
                 if soft:
                     return None
                 die(f"clone failed: {r.stderr.strip()}")
-            return cls(target, root, profile_name=prof)
+            return cls(target, profile_name=prof)
         binding = repo_binding(repo_value)
         if binding.get("path"):
             bp = Path(binding["path"]).expanduser()
-            if not bp.is_absolute():
-                bp = root / bp
             bp = bp.resolve()
             if subprocess.run(["git", "-C", str(bp), "rev-parse", "--git-dir"],
                               capture_output=True).returncode != 0:
@@ -591,25 +553,18 @@ class TargetRepo:
                     return None
                 die(f"repo '{repo_value}' points at {bp}, "
                     f"which is not a git repository")
-            return cls(bp, root, profile_name=binding.get("profile", ""))
+            return cls(bp, profile_name=binding.get("profile", ""))
         p = Path(repo_value).expanduser()
-        if not p.is_absolute():
-            p = root / p
         p = p.resolve()
         if subprocess.run(["git", "-C", str(p), "rev-parse", "--git-dir"],
                           capture_output=True).returncode != 0:
             if soft:
                 return None
             die(f"repo is not a git repository: {p}")
-        return cls(p, root, profile_name=repo_binding(repo_value).get("profile", ""))
+        return cls(p, profile_name=repo_binding(repo_value).get("profile", ""))
 
     def display(self) -> str:
-        if self.path == self.root:
-            return "this factory"
-        try:
-            return str(self.path.relative_to(self.root))
-        except ValueError:
-            return str(self.path)
+        return str(self.path)
 
     def slug(self) -> str:
         return repo_slug(self.path)

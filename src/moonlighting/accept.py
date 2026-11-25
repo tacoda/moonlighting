@@ -15,19 +15,18 @@ def main() -> None:
         factory.die("usage: moonlighting accept ID", 2)
     oid = sys.argv[1]
 
-    root = factory.repo_root()
-    matches = sorted(factory.orders_dir(root).glob(f"{oid}*.md"))
+    fl = factory.floor()
+    matches = sorted(fl["orders"].glob(f"{oid}*.md"))
     if len(matches) != 1:
         factory.die(f"expected exactly one order matching '{oid}*', "
                     f"found {len(matches)}")
-    order = factory.WorkOrder(matches[0], root)
+    order = factory.WorkOrder(matches[0])
 
     if order.status != "review":
         factory.die(f"{oid} is '{order.status}', not 'review' — decide "
                     f"blocked/draft orders in the order file first")
-    tracks_orders = factory.orders_dir(root) == root / "work-orders"
 
-    repo = factory.TargetRepo.resolve(root, order.repo_value)
+    repo = factory.TargetRepo.resolve(order.repo_value)
     if repo is None:
         factory.die(f"cannot resolve repo '{order.repo_value}' for {oid}")
     branch = order.branch
@@ -41,12 +40,6 @@ def main() -> None:
     if ahead == 0:
         factory.die(f"{branch} has no commits ahead of {base} in {t_display} — "
                     f"nothing to merge")
-
-    fbranch = factory.git_out(root, "branch", "--show-current")
-    if fbranch != "main":
-        factory.die(f"run accepts from the factory's main (you are on: {fbranch})")
-    if not factory.clean_tree(root):
-        factory.die("factory working tree must be clean")
 
     title = order.title or oid
     commit_msg = f"wo-{oid}: {title} (night shift; accepted by day shift)"
@@ -63,21 +56,9 @@ def main() -> None:
             print(merge.stdout + merge.stderr, file=sys.stderr)
             factory.die("squash-merge conflicts — resolve by hand in the target "
                         f"repo, or: git -C {t_display} merge --abort")
-        if repo.path == root:
-            # one commit on factory main: the merged code. The order file
-            # is input and stays untracked.
-            order.set_status("done")
-            factory.git(root, "add", "-A")
-            factory.git(root, "commit", "-q", "-m", commit_msg)
-        else:
-            # the work commits in the target repo (squash only stages it)
-            factory.git(repo.path, "add", "-A")
-            factory.git(repo.path, "commit", "-q", "-m", commit_msg, env=env)
-            order.set_status("done")
-            if tracks_orders:
-                factory.git(root, "add", str(order.rel))
-                factory.git(root, "commit", "-q", "-m",
-                            f"wo-{oid}: mark done")
+        # the work commits in the target repo (squash only stages it)
+        factory.git(repo.path, "add", "-A")
+        factory.git(repo.path, "commit", "-q", "-m", commit_msg, env=env)
     else:
         # The target sits on another branch. Merge in a throwaway worktree
         # at main, so the human's checkout stays exactly where it is.
@@ -95,18 +76,12 @@ def main() -> None:
             finally:
                 factory.git(repo.path, "worktree", "remove", "--force",
                             str(wt), check=False)
-        order.set_status("done")
-        if tracks_orders:
-            factory.git(root, "add", str(order.rel))
-            factory.git(root, "commit", "-q", "-m", f"wo-{oid}: mark done")
+    order.set_status("done")
 
     print(f"accepted wo-{oid}: squash-merged {branch} into {base} in {t_display} "
           f"({ahead} commit(s)); order -> done")
-    if repo.path != root:
-        print(f"remember: push {t_display} yourself — the factory never pushes")
-        print(f"optional cleanup: git -C {t_display} branch -D {branch}")
-    else:
-        print(f"optional cleanup: git branch -D {branch}")
+    print(f"remember: push {t_display} yourself — the factory never pushes")
+    print(f"optional cleanup: git -C {t_display} branch -D {branch}")
 
 
 if __name__ == "__main__":

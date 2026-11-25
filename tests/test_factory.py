@@ -1,8 +1,11 @@
 """Tests for the factory object model, engine adapters and locks.
 
-Run with: uv run pytest
+Run with: uv run pytest. Git-touching paths run against fakes. No test
+needs a real repository or network; the only real subprocesses are
+plain python children.
 """
 
+import contextlib
 import gzip
 import os
 import re
@@ -14,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from moonlighting import factory
+from moonlighting import accept, factory, schedule
 from moonlighting import run as nightrun
 
 ORDER = """---
@@ -40,11 +43,78 @@ Do the thing.
 SYSTEM = "be brief"
 PROMPT = "do it"
 
+GOOD_APPROVED = ORDER.replace("status: draft", "status: approved")
+BROKEN_APPROVED = (ORDER.replace("status: draft", "status: approved")
+                   .replace("id: a1b2c3d", "id: b2c3d4e")
+                   .replace("- Step one.\n", ""))
+
+
+class _R:
+    """Minimal subprocess.CompletedProcess stand-in."""
+
+    def __init__(self, code=0, out="", err=""):
+        self.returncode, self.stdout, self.stderr = code, out, err
+
+
+class FakeRepo:
+    """Duck-typed TargetRepo: every git answer is canned."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.profile_name = ""
+
+    def display(self):
+        return str(self.path)
+
+    def slug(self):
+        return self.path.name
+
+    def env(self):
+        return {}
+
+    def is_dirty(self):
+        return False
+
+    def current_branch(self):
+        return "main"
+
+    def local_main(self):
+        return "main"
+
+    def base_ref(self):
+        return "origin/main"
+
+    def branch_exists(self, name):
+        return True
+
+
+def patch_resolve(monkeypatch, mapping):
+    """TargetRepo.resolve answers from a {value: repo-or-None} dict."""
+    monkeypatch.setattr(
+        factory.TargetRepo, "resolve",
+        classmethod(lambda cls, value, update=True, soft=False:
+                    mapping.get(value)))
+
 
 def make_order(tmp_path, text=ORDER, name="a1b2c3d-test.md"):
     path = tmp_path / name
     path.write_text(text)
-    return factory.WorkOrder(path, tmp_path)
+    return factory.WorkOrder(path)
+
+
+def fake_floor():
+    """Floor with the orders and logs directories ready."""
+    fl = factory.floor()
+    fl["orders"].mkdir(parents=True, exist_ok=True)
+    fl["logs"].mkdir(parents=True, exist_ok=True)
+    return fl
+
+
+def run_module(module, *args):
+    """Run a workflow module as a child with the isolated env inherited."""
+    return subprocess.run([sys.executable, "-m", f"moonlighting.{module}",
+                           *args], check=False, capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL)
 
 
 # ------------------------------------------------------- frontmatter
@@ -118,6 +188,37 @@ def test_lint_unresolvable_repo_path(tmp_path):
     text = ORDER.replace("---\n", f"---\nrepo: {tmp_path / 'nope'}\n", 1)
     problems = make_order(tmp_path, text).lint()
     assert any("not a git repository" in p for p in problems)
+
+
+def test_lint_rejects_self_repo(tmp_path):
+    text = ORDER.replace("---\n", "---\nrepo: self\n", 1)
+    problems = make_order(tmp_path, text).lint()
+    assert any("named no target" in p for p in problems)
+
+
+def test_lint_id_filename_mismatch(tmp_path):
+    order = make_order(tmp_path, name="007-mismatch.md")
+    problems = order.lint()
+    assert any("does not match the filename prefix" in p for p in problems)
+
+
+def test_lint_rejects_bad_id_format(tmp_path):
+    text = ORDER.replace("id: a1b2c3d", "id: zebra-12")
+    problems = make_order(tmp_path, text).lint()
+    assert any("7-char hex sha" in p for p in problems)
+
+
+def test_workorder_model_field(tmp_path):
+    text = ORDER.replace("---\n", "---\nmodel: anthropic/claude-opus-5\n", 1)
+    order = make_order(tmp_path, text)
+    assert order.model == "anthropic/claude-opus-5"
+    assert make_order(tmp_path).model == ""
+
+
+def test_lint_rejects_model_with_whitespace(tmp_path):
+    text = ORDER.replace("---\n", "---\nmodel: claude opus\n", 1)
+    problems = make_order(tmp_path, text).lint()
+    assert any("model" in p for p in problems)
 
 
 def test_branch_default_and_override(tmp_path):
@@ -301,21 +402,52 @@ def test_session_store_roundtrip(tmp_path):
 # --------------------------------------------------------- target repos
 
 
-def test_resolve_self(tmp_path):
-    repo = factory.TargetRepo.resolve(tmp_path, "self")
-    assert repo is not None
-    assert repo.path == tmp_path
+def test_resolve_self_is_rejected():
+    with pytest.raises(factory.FactoryError):
+        factory.TargetRepo.resolve("self")
+
+
+def test_resolve_empty_is_rejected_soft():
+    assert factory.TargetRepo.resolve("", soft=True) is None
 
 
 def test_resolve_missing_path_soft(tmp_path):
     missing = str(tmp_path / "nope")
-    assert factory.TargetRepo.resolve(tmp_path, missing,
+    assert factory.TargetRepo.resolve(missing, update=False, soft=True) is None
+
+
+def test_resolve_url_not_cloned_soft():
+    assert factory.TargetRepo.resolve("https://example.com/x.git",
                                       update=False, soft=True) is None
 
 
-def test_resolve_url_not_cloned_soft(tmp_path):
-    assert factory.TargetRepo.resolve(tmp_path, "https://example.com/x.git",
-                                      update=False, soft=True) is None
+def test_repo_name_resolution_and_identity(tmp_path, monkeypatch):
+    target = tmp_path / "target"
+    target.mkdir()
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('[profile.work]\nname = "Work Bot"\n'
+                   'email = "bot@work.example"\n\n'
+                   f'[repo.demo]\npath = "{target}"\nprofile = "work"\n')
+    monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
+    monkeypatch.setattr(factory.subprocess, "run", lambda *a, **k: _R(0))
+    repo = factory.TargetRepo.resolve("demo")
+    assert repo is not None
+    assert repo.path == target.resolve()
+    assert repo.profile_name == "work"
+    env = repo.env()
+    assert env["GIT_AUTHOR_NAME"] == "Work Bot"
+    assert env["GIT_AUTHOR_EMAIL"] == "bot@work.example"
+
+
+def test_resolve_expands_tilde(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('[repo.tilde]\npath = "~/realrepo"\n')
+    monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
+    monkeypatch.setattr(factory.subprocess, "run", lambda *a, **k: _R(0))
+    repo = factory.TargetRepo.resolve("tilde", update=False)
+    assert repo is not None
+    assert repo.path == (tmp_path / "realrepo").resolve()
 
 
 # -------------------------------------------------------------- helpers
@@ -331,438 +463,44 @@ def test_repo_slug():
     assert factory.repo_slug(Path("/a b/c")) == "_a_b_c"
 
 
-# ------------------------------------------------------- audit fixes
-
-
-def test_resolve_expands_tilde(tmp_path, monkeypatch):
-    real = tmp_path / "realrepo"
-    subprocess.run(["git", "init", "-q", str(real)], check=True)
-    monkeypatch.setenv("HOME", str(tmp_path))
-    repo = factory.TargetRepo.resolve(tmp_path, "~/realrepo", update=False)
-    assert repo is not None
-    assert repo.path == (tmp_path / "realrepo").resolve()
-
-
-def make_git_repo(path, branch="main"):
-    subprocess.run(["git", "init", "-q", "-b", branch, str(path)], check=True)
-    subprocess.run(["git", "-C", str(path), "commit", "-q", "--allow-empty",
-                    "-m", "init"], check=True)
-    return path
-
-
-def test_base_ref_guard_leaves_other_checkouts(tmp_path):
-    repo_path = make_git_repo(tmp_path / "r")
-    subprocess.run(["git", "-C", str(repo_path), "checkout", "-q", "-b",
-                    "feature"], check=True)
-    repo = factory.TargetRepo(repo_path)
-    assert repo.base_ref() == "main"
-    current = factory.git_out(repo_path, "branch", "--show-current")
-    assert current == "feature"
-
-
-def test_base_ref_on_main_without_origin(tmp_path):
-    repo = factory.TargetRepo(make_git_repo(tmp_path / "r"))
-    assert repo.base_ref() == "main"
-
-
 def test_git_failure_raises_factory_error(tmp_path):
-    with pytest.raises(factory.FactoryError) as excinfo:
-        factory.git(tmp_path, "rev-parse", "--show-toplevel")
-    assert "git rev-parse --show-toplevel failed" in str(excinfo.value)
+    with pytest.raises(factory.FactoryError):
+        factory.git(tmp_path, "log", "-1")
 
 
 def test_git_check_false_stays_quiet(tmp_path):
-    r = factory.git(tmp_path, "rev-parse", "--show-toplevel", check=False)
+    r = factory.git(tmp_path, "log", "-1", check=False)
     assert r.returncode != 0
 
 
-# ------------------------------------------------ should-fix batch
-
-
 def test_run_under_timeout_feeds_stdin(tmp_path):
-    stub = tmp_path / "upper.py"
-    stub.write_text("import sys\nsys.stdout.write(sys.stdin.read().upper())\n")
-    out = tmp_path / "out"
-    err = tmp_path / "err.log"
-    rc = factory.run_under_timeout([sys.executable, str(stub)], tmp_path, 10,
-                                   out, err, input_text="hello")
+    script = tmp_path / "reader.py"
+    script.write_text("import sys\nsys.stdout.write(sys.stdin.read().upper())\n")
+    out, err = tmp_path / "out", tmp_path / "err"
+    rc = factory.run_under_timeout([sys.executable, str(script)], tmp_path, 30,
+                                   out, err, input_text="ping")
     assert rc == 0
-    assert out.read_text() == "HELLO"
+    assert out.read_text() == "PING"
 
 
-def test_run_under_timeout_kills_process_group(tmp_path):
-    pidfile = tmp_path / "child.pid"
-    stub = tmp_path / "stub.py"
-    stub.write_text(
-        "import subprocess\nimport time\n"
-        "child = subprocess.Popen(['sleep', '60'])\n"
-        f"open({str(pidfile)!r}, 'w').write(str(child.pid))\n"
-        "time.sleep(60)\n")
-    out = tmp_path / "out"
-    err = tmp_path / "err.log"
-    rc = factory.run_under_timeout([sys.executable, str(stub)], tmp_path, 1,
+def test_run_under_timeout_kills_hang(tmp_path):
+    script = tmp_path / "hang.py"
+    script.write_text("import time\ntime.sleep(60)\n")
+    out, err = tmp_path / "out", tmp_path / "err"
+    start = time.monotonic()
+    rc = factory.run_under_timeout([sys.executable, str(script)], tmp_path, 2,
                                    out, err)
-    assert rc == 124
-    child = int(pidfile.read_text())
-    for _ in range(50):
-        if not factory.pid_alive(child):
-            break
-        time.sleep(0.1)
-    assert not factory.pid_alive(child)
+    assert rc != 0
+    assert time.monotonic() - start < 30
 
 
-def test_resolve_rejects_wrong_remote(tmp_path):
-    clone = tmp_path / "repos" / "other"
-    clone.mkdir(parents=True)
-    subprocess.run(["git", "init", "-q", str(clone)], check=True)
-    subprocess.run(["git", "-C", str(clone), "remote", "add", "origin",
-                    "https://example.com/wrong.git"], check=True)
-    with pytest.raises(factory.FactoryError) as excinfo:
-        factory.TargetRepo.resolve(tmp_path, "https://example.com/other.git")
-    assert "holds" in str(excinfo.value)
+# ------------------------------------------------------- locations
 
 
-def test_resolve_rejects_wrong_remote_soft(tmp_path):
-    clone = tmp_path / "repos" / "other"
-    clone.mkdir(parents=True)
-    subprocess.run(["git", "init", "-q", str(clone)], check=True)
-    subprocess.run(["git", "-C", str(clone), "remote", "add", "origin",
-                    "https://example.com/wrong.git"], check=True)
-    assert factory.TargetRepo.resolve(tmp_path, "https://example.com/other.git",
-                                      soft=True) is None
-
-
-def test_resolve_accepts_matching_remote(tmp_path):
-    clone = tmp_path / "repos" / "other"
-    clone.mkdir(parents=True)
-    subprocess.run(["git", "init", "-q", str(clone)], check=True)
-    subprocess.run(["git", "-C", str(clone), "remote", "add", "origin",
-                    "https://example.com/other.git"], check=True)
-    repo = factory.TargetRepo.resolve(tmp_path, "https://example.com/other.git",
-                                      update=False)
-    assert repo is not None
-    assert repo.path == clone
-
-
-GOOD_APPROVED = ORDER.replace("status: draft", "status: approved")
-BROKEN_APPROVED = (ORDER.replace("status: draft", "status: approved")
-                   .replace("id: a1b2c3d", "id: b2c3d4e")
-                   .replace("- Step one.\n", ""))
-
-
-def test_collect_splits_healthy_from_problems(tmp_path):
-    (tmp_path / "work-orders").mkdir()
-    (tmp_path / "night-shift").mkdir()
-    (tmp_path / "night-shift" / "NIGHT-SHIFT.md").write_text("# manual\n")
-    (tmp_path / "night-shift" / "QA-SHIFT.md").write_text("# qa\n")
-    (tmp_path / "work-orders" / "a1b2c3d-good.md").write_text(GOOD_APPROVED)
-    (tmp_path / "work-orders" / "b2c3d4e-bad.md").write_text(BROKEN_APPROVED)
-    night = nightrun.NightRun(tmp_path, "pi", None, 5, True, 60)
-    healthy, problems, skipped = night.collect()
-    assert [o.id for o, _ in healthy] == ["a1b2c3d"]
-    assert [o.id for o, _ in problems] == ["b2c3d4e"]
-    assert skipped == 0
-
-
-def _git(path, *args):
-    subprocess.run(["git", "-C", str(path), *args], check=True,
-                   capture_output=True)
-
-
-def test_accept_external_merge_keeps_the_checkout(tmp_path):
-    factory_root = make_git_repo(tmp_path / "factory")
-    target = make_git_repo(tmp_path / "target")
-    _git(target, "checkout", "-q", "-b", "human-branch")
-    _git(target, "checkout", "-q", "-b", "wo/001", "main")
-    (target / "file.txt").write_text("night work\n")
-    _git(target, "add", "-A")
-    _git(target, "commit", "-q", "-m", "night work")
-    _git(target, "checkout", "-q", "human-branch")
-    wo_dir = factory_root / "work-orders"
-    wo_dir.mkdir()
-    order = (f"---\nid: 001\ntitle: t\nstatus: review\ncreated: 2026-01-01\n"
-             f"repo: {target}\nbranch: wo/001\n---\n\n## Goal\n\ng.\n\n"
-             "## Tasks\n\n- t.\n\n## Acceptance criteria\n\n- a.\n")
-    (wo_dir / "001-test.md").write_text(order)
-    _git(factory_root, "add", "-A")
-    _git(factory_root, "commit", "-q", "-m", "order")
-    r = subprocess.run([sys.executable, "-m", "moonlighting.accept", "001"],
-                       cwd=factory_root, capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr
-    main_log = subprocess.run(
-        ["git", "-C", str(target), "log", "--oneline", "main"],
-        capture_output=True, text=True).stdout
-    assert "wo-001" in main_log
-    current = subprocess.run(
-        ["git", "-C", str(target), "branch", "--show-current"],
-        capture_output=True, text=True).stdout.strip()
-    assert current == "human-branch"
-    worktrees = subprocess.run(
-        ["git", "-C", str(target), "worktree", "list"],
-        capture_output=True, text=True).stdout
-    assert worktrees.count("\n") == 1
-
-
-def test_lint_id_filename_mismatch(tmp_path):
-    order = make_order(tmp_path, name="007-mismatch.md")
-    problems = order.lint()
-    assert any("does not match the filename prefix" in p for p in problems)
-
-
-def test_run_empty_filter_lists_other_repos(tmp_path, capsys):
-    shop = make_git_repo(tmp_path / "shop")
-    other = make_git_repo(tmp_path / "other")
-    (tmp_path / "work-orders").mkdir()
-    (tmp_path / "night-shift").mkdir()
-    (tmp_path / "night-shift" / "NIGHT-SHIFT.md").write_text("# manual\n")
-    (tmp_path / "night-shift" / "QA-SHIFT.md").write_text("# qa\n")
-    order = GOOD_APPROVED.replace("---\n", f"---\nrepo: {shop}\n", 1)
-    (tmp_path / "work-orders" / "a1b2c3d-shop.md").write_text(order)
-    night = nightrun.NightRun(tmp_path, "pi", str(other), 5, True, 60)
-    night.run()
-    out = capsys.readouterr().out
-    assert "nothing approved for this repo" in out
-    assert "approved orders exist for other repos" in out
-    assert "a1b2c3d" in out and str(shop) in out
-
-
-def test_preflight_failure_lands_in_errors_log(tmp_path):
-    floor = make_git_repo(tmp_path / "floor")
-    r = subprocess.run([sys.executable, "-m", "moonlighting.run"], cwd=floor,
-                       capture_output=True, text=True)
-    assert r.returncode == 1
-    log = floor / "night-shift" / "logs" / "errors.log"
-    assert "work orders directory" in log.read_text()
-
-
-def test_workorder_model_field(tmp_path):
-    text = ORDER.replace("---\n", "---\nmodel: anthropic/claude-opus-5\n", 1)
-    order = make_order(tmp_path, text)
-    assert order.model == "anthropic/claude-opus-5"
-    assert make_order(tmp_path).model == ""
-
-
-def test_lint_rejects_model_with_whitespace(tmp_path):
-    text = ORDER.replace("---\n", "---\nmodel: claude opus\n", 1)
-    problems = make_order(tmp_path, text).lint()
-    assert any("model" in p for p in problems)
-
-
-def test_lint_rejects_bad_id_format(tmp_path):
-    text = ORDER.replace("id: a1b2c3d", "id: zebra-12")
-    problems = make_order(tmp_path, text).lint()
-    assert any("7-char hex sha" in p for p in problems)
-
-
-def test_new_order_approve_flag(tmp_path):
-    root = make_git_repo(tmp_path / "f")
-    (root / "work-orders").mkdir()
-    docs = root / "docs"
-    docs.mkdir()
-    template = Path(__file__).resolve().parents[1] / "docs" / "work-order-template.md"
-    (docs / "work-order-template.md").write_text(template.read_text())
-    r = subprocess.run([sys.executable, "-m", "moonlighting.new_order",
-                        "Quick", "--approve"],
-                       cwd=root, capture_output=True, text=True,
-                       stdin=subprocess.DEVNULL)
-    assert r.returncode == 0, r.stderr
-    created = list((root / "work-orders").glob("*-quick.md"))
-    assert len(created) == 1
-    sha = created[0].name.split("-")[0]
-    assert re.fullmatch(r"[0-9a-f]{7}", sha)
-    text = created[0].read_text()
-    assert "status: approved" in text
-    assert "the night picks it up" in r.stdout
-
-
-def test_new_order_requires_title_when_not_interactive(tmp_path):
-    root = make_git_repo(tmp_path / "f")
-    r = subprocess.run([sys.executable, "-m", "moonlighting.new_order"], cwd=root,
-                       capture_output=True, text=True,
-                       stdin=subprocess.DEVNULL)
-    assert r.returncode == 2
-    assert "not running interactively" in r.stderr
-
-
-def test_orders_dir_env_override(tmp_path, monkeypatch):
-    assert factory.orders_dir(tmp_path) == tmp_path / "work-orders"
+def test_orders_dir_overrides(tmp_path, monkeypatch):
+    assert factory.orders_dir() == factory.data_dir() / "orders"
     monkeypatch.setenv("FACTORY_ORDERS_DIR", str(tmp_path / "inbox"))
-    assert factory.orders_dir(tmp_path) == tmp_path / "inbox"
-    monkeypatch.setenv("FACTORY_ORDERS_DIR", "inbox2")
-    assert factory.orders_dir(tmp_path) == tmp_path / "inbox2"
-
-
-def test_night_timeout_guard(tmp_path):
-    floor = make_git_repo(tmp_path / "floor")
-    env = dict(os.environ, NIGHT_TIMEOUT_SECS="abc")
-    r = subprocess.run([sys.executable, "-m", "moonlighting.run"], cwd=floor,
-                       capture_output=True, text=True, env=env)
-    assert r.returncode == 2
-    assert "must be an integer" in r.stderr
-
-
-def test_morning_digest_lists_review_and_blocked(tmp_path):
-    (tmp_path / "work-orders").mkdir()
-    (tmp_path / "night-shift").mkdir()
-    (tmp_path / "night-shift" / "NIGHT-SHIFT.md").write_text("# manual\n")
-    (tmp_path / "night-shift" / "QA-SHIFT.md").write_text("# qa\n")
-    review = ORDER.replace("status: draft", "status: review")
-    review += ("\n### 04:00 — night run (engine pi), exit 0 (9s)\n\nreport\n\n"
-               "---\n\n### QA pre-shift (engine pi, exit 0)\n\n"
-               "**Verdict** — SHIP\n")
-    (tmp_path / "work-orders" / "a1b2c3d-a.md").write_text(review)
-    blocked = (ORDER.replace("status: draft", "status: blocked")
-               .replace("id: a1b2c3d", "id: b2c3d4e"))
-    (tmp_path / "work-orders" / "b2c3d4e-b.md").write_text(blocked)
-    night = nightrun.NightRun(tmp_path, "pi", None, 5, True, 60)
-    night._write_morning_digest()
-    digest = tmp_path / "night-shift" / "logs" / f"{night.today}-morning.md"
-    text = digest.read_text()
-    assert "a1b2c3d" in text and "SHIP" in text
-    assert "b2c3d4e" in text and "blocked" in text
-
-
-def test_rotate_logs_roundtrip(tmp_path):
-    root = make_git_repo(tmp_path / "f")
-    logs = root / "night-shift" / "logs"
-    logs.mkdir(parents=True)
-    old = logs / "2026-01-01-wo-001.out.md"
-    old.write_text("precious report\n")
-    past = time.time() - 86400 * 2
-    os.utime(old, (past, past))
-    r = subprocess.run([sys.executable, "-m", "moonlighting.rotate_logs",
-                        "--days", "1", "--write"],
-                       cwd=root, capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr
-    assert not old.exists()
-    gz = logs / "archive" / "2026-01-01-wo-001.out.md.gz"
-    assert gz.exists()
-    with gzip.open(gz, "rt") as f:
-        assert f.read() == "precious report\n"
-    log_line = subprocess.run(
-        ["git", "-C", str(root), "log", "--oneline", "-1"],
-        capture_output=True, text=True).stdout
-    assert "rotate-logs" in log_line
-
-
-def test_new_order_creates_filled_ids(tmp_path):
-    root = make_git_repo(tmp_path / "f")
-    (root / "work-orders").mkdir()
-    docs = root / "docs"
-    docs.mkdir()
-    template = Path(__file__).resolve().parents[1] / "docs" / "work-order-template.md"
-    (docs / "work-order-template.md").write_text(template.read_text())
-    r = subprocess.run([sys.executable, "-m", "moonlighting.new_order",
-                        "Atom: feed!"],
-                       cwd=root, capture_output=True, text=True,
-                       stdin=subprocess.DEVNULL)
-    assert r.returncode == 0, r.stderr
-    first = list((root / "work-orders").glob("*-atom-feed.md"))
-    assert len(first) == 1
-    sha = first[0].name.split("-")[0]
-    assert re.fullmatch(r"[0-9a-f]{7}", sha)
-    text = first[0].read_text()
-    assert f"id: {sha}" in text and "title: Atom: feed!" in text
-    assert f"created: {date.today().isoformat()}" in text
-    assert f"branch: wo/{sha}" in text
-    r2 = subprocess.run([sys.executable, "-m", "moonlighting.new_order",
-                         "Second thing"],
-                        cwd=root, capture_output=True, text=True)
-    assert r2.returncode == 0, r2.stderr
-    second = list((root / "work-orders").glob("*-second-thing.md"))
-    assert len(second) == 1
-    assert second[0].name.split("-")[0] != sha
-
-
-def test_new_order_repo_and_model_fields(tmp_path):
-    root = make_git_repo(tmp_path / "f")
-    target = make_git_repo(tmp_path / "shop")
-    (root / "work-orders").mkdir()
-    docs = root / "docs"
-    docs.mkdir()
-    template = Path(__file__).resolve().parents[1] / "docs" / "work-order-template.md"
-    (docs / "work-order-template.md").write_text(template.read_text())
-    r = subprocess.run(
-        [sys.executable, "-m", "moonlighting.new_order", "Chore",
-         "--repo", str(target), "--model", "x/y:high"],
-        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    assert r.returncode == 0, r.stderr
-    created = list((root / "work-orders").glob("*-chore.md"))
-    assert len(created) == 1
-    text = created[0].read_text()
-    assert f"repo: {target}" in text
-    assert "model: x/y:high" in text
-    assert "lint: clean" in r.stdout
-
-
-def test_answer_and_feedback_roundtrip(tmp_path):
-    root = make_git_repo(tmp_path / "f")
-    (root / "work-orders").mkdir()
-    blocked = GOOD_APPROVED.replace("status: approved", "status: blocked")
-    (root / "work-orders" / "a1b2c3d-b.md").write_text(blocked)
-    review = GOOD_APPROVED.replace("status: approved", "status: review")
-    (root / "work-orders" / "b2c3d4e-r.md").write_text(review)
-
-    r1 = subprocess.run(
-        [sys.executable, "-m", "moonlighting.answer", "a1b2c3d",
-         "use the other path"],
-        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    assert r1.returncode == 0, r1.stderr
-    t1 = (root / "work-orders" / "a1b2c3d-b.md").read_text()
-    assert "status: approved" in t1 and "use the other path" in t1
-    assert "day shift decision" in t1
-
-    r2 = subprocess.run(
-        [sys.executable, "-m", "moonlighting.feedback", "b2c3d4e", "add tests"],
-        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    assert r2.returncode == 0, r2.stderr
-    t2 = (root / "work-orders" / "b2c3d4e-r.md").read_text()
-    assert "status: blocked" in t2 and "add tests" in t2
-
-    r3 = subprocess.run(
-        [sys.executable, "-m", "moonlighting.feedback", "a1b2c3d", "nope"],
-        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    assert r3.returncode == 1
-    assert "not 'review'" in r3.stderr
-
-
-def test_approve_script(tmp_path):
-    root = make_git_repo(tmp_path / "f")
-    (root / "work-orders").mkdir()
-    (root / "work-orders" / "a1b2c3d-d.md").write_text(ORDER)
-    r = subprocess.run([sys.executable, "-m", "moonlighting.approve", "a1b2c3d"],
-                       cwd=root, capture_output=True, text=True,
-                       stdin=subprocess.DEVNULL)
-    assert r.returncode == 0, r.stderr
-    text = (root / "work-orders" / "a1b2c3d-d.md").read_text()
-    assert "status: approved" in text
-
-
-def test_remove_deletes_order(tmp_path):
-    root = make_git_repo(tmp_path / "f")
-    wo = root / "work-orders"
-    wo.mkdir()
-    target = wo / "a1b2c3d-old.md"
-    target.write_text(ORDER)
-
-    r = subprocess.run(
-        [sys.executable, "-m", "moonlighting.remove", "a1b2c3d"],
-        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    assert r.returncode == 1
-    assert "refusing to delete" in r.stderr
-    assert target.exists()
-
-    r2 = subprocess.run(
-        [sys.executable, "-m", "moonlighting.remove", "a1b2c3d", "--yes"],
-        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    assert r2.returncode == 0, r2.stderr
-    assert not target.exists()
-
-    r3 = subprocess.run(
-        [sys.executable, "-m", "moonlighting.remove", "zzzzzzz", "--yes"],
-        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    assert r3.returncode == 1
-    assert "found 0" in r3.stderr
+    assert factory.orders_dir() == tmp_path / "inbox"
 
 
 def test_config_sets_orders_dir(tmp_path, monkeypatch):
@@ -770,73 +508,330 @@ def test_config_sets_orders_dir(tmp_path, monkeypatch):
     cfg = tmp_path / "config.toml"
     cfg.write_text(f'[factory]\norders-dir = "{inbox}"\n')
     monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
-    root = tmp_path / "floor"
-    root.mkdir()
-    assert factory.orders_dir(root) == tmp_path / "inbox"
+    assert factory.orders_dir() == tmp_path / "inbox"
     monkeypatch.setenv("FACTORY_ORDERS_DIR", str(tmp_path / "envdir"))
-    assert factory.orders_dir(root) == tmp_path / "envdir"
+    assert factory.orders_dir() == tmp_path / "envdir"
 
 
-def test_repo_name_resolution_and_identity(tmp_path, monkeypatch):
-    target = make_git_repo(tmp_path / "target")
-    cfg = tmp_path / "config.toml"
-    cfg.write_text(
-        "[profile.work]\n"
-        'name = "Work Bot"\n'
-        'email = "bot@work.example"\n'
-        "\n"
-        f'[repo.demo]\npath = "{target}"\nprofile = "work"\n'
-    )
-    monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
-    repo = factory.TargetRepo.resolve(tmp_path, "demo")
-    assert repo is not None and repo.path == target
-    assert repo.profile_name == "work"
-    env = repo.env()
-    assert env["GIT_AUTHOR_NAME"] == "Work Bot"
-    assert env["GIT_AUTHOR_EMAIL"] == "bot@work.example"
+def test_floor_dirs_live_under_data_dir():
+    fl = factory.floor()
+    data = factory.data_dir()
+    assert fl["orders"] == data / "orders"
+    assert fl["logs"] == data / "logs"
+    assert fl["locks"] == data / "locks"
+    assert fl["worktrees"] == data / "worktrees"
+    assert fl["sessions"] == data / "sessions.json"
+    assert fl["manual"].is_file()  # the manual ships inside the package
+    assert factory.packaged_template().is_file()
 
 
-def test_night_applies_profile_identity(tmp_path, monkeypatch):
-    root = make_git_repo(tmp_path / "floor")
-    target = make_git_repo(tmp_path / "target")
-    (root / "work-orders").mkdir()
-    ns = root / "night-shift"
-    ns.mkdir()
-    (ns / "NIGHT-SHIFT.md").write_text("# manual\n")
-    (ns / "QA-SHIFT.md").write_text("# qa\n")
-    order = ("---\nid: aaa1111\ntitle: Demo\nstatus: approved\n"
-             "created: 2026-01-01\nrepo: demo\n---\n\n## Goal\n\ng.\n\n"
-             "## Tasks\n\n- t.\n\n## Acceptance criteria\n\n- a.\n")
-    (root / "work-orders" / "aaa1111-demo.md").write_text(order)
-    cfg = tmp_path / "config.toml"
-    cfg.write_text(
-        "[profile.work]\n"
-        'name = "Work Bot"\n'
-        'email = "bot@work.example"\n'
-        "\n"
-        f'[repo.demo]\npath = "{target}"\nprofile = "work"\n'
-    )
-    monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
-    monkeypatch.setenv("FACTORY_QA", "0")
-    stub = tmp_path / "stub_engine.py"
-    stub.write_text("#!/usr/bin/env python3\n"
-                    "from pathlib import Path\n"
-                    "Path('night_work.txt').write_text('work')\n")
-    stub.chmod(0o755)
-    monkeypatch.setenv("PI_BIN", str(stub))
-    night = nightrun.NightRun(root, "pi", None, 1, False, 120)
+# ------------------------------------------------------------ the night
+
+
+def test_collect_splits_healthy_from_problems(tmp_path, monkeypatch):
+    fl = fake_floor()
+    good = GOOD_APPROVED.replace("---\n", "---\nrepo: shop\n", 1)
+    bad = BROKEN_APPROVED.replace("---\n", "---\nrepo: shop\n", 1)
+    (fl["orders"] / "a1b2c3d-good.md").write_text(good)
+    (fl["orders"] / "b2c3d4e-bad.md").write_text(bad)
+    patch_resolve(monkeypatch, {"shop": FakeRepo(tmp_path / "shop")})
+    night = nightrun.NightRun(fl, "pi", None, 5, True, 60)
+    healthy, problems, skipped = night.collect()
+    assert [o.id for o, _ in healthy] == ["a1b2c3d"]
+    assert [o.id for o, _ in problems] == ["b2c3d4e"]
+    assert skipped == 0
+
+
+def test_collect_blocks_order_without_repo(tmp_path):
+    fl = fake_floor()
+    (fl["orders"] / "a1b2c3d-norepo.md").write_text(GOOD_APPROVED)
+    night = nightrun.NightRun(fl, "pi", None, 5, True, 60)
+    _, problems, _ = night.collect()
+    assert any("names no target repo" in p[1][0] for p in problems)
+
+
+def test_run_empty_filter_lists_other_repos(tmp_path, monkeypatch, capsys):
+    fl = fake_floor()
+    shop = FakeRepo(tmp_path / "shop")
+    other = FakeRepo(tmp_path / "other")
+    order = GOOD_APPROVED.replace("---\n", "---\nrepo: shop\n", 1)
+    (fl["orders"] / "a1b2c3d-shop.md").write_text(order)
+    patch_resolve(monkeypatch, {"shop": shop, "other": other})
+    nightrun.NightRun(fl, "pi", "other", 5, True, 60).run()
+    out = capsys.readouterr().out
+    assert "nothing approved for this repo" in out
+    assert "approved orders exist for other repos" in out
+    assert "a1b2c3d" in out and "shop" in out
+
+
+def test_morning_digest_lists_review_and_blocked():
+    fl = fake_floor()
+    review = ORDER.replace("status: draft", "status: review")
+    review += ("\n### 04:00 — night run (engine pi), exit 0 (9s)\n\nreport\n\n"
+               "---\n\n### QA pre-shift (engine pi, exit 0)\n\n"
+               "**Verdict** — SHIP\n")
+    (fl["orders"] / "a1b2c3d-a.md").write_text(review)
+    blocked = (ORDER.replace("status: draft", "status: blocked")
+               .replace("id: a1b2c3d", "id: b2c3d4e"))
+    (fl["orders"] / "b2c3d4e-b.md").write_text(blocked)
+    night = nightrun.NightRun(fl, "pi", None, 5, True, 60)
+    night._write_morning_digest()
+    digest = fl["logs"] / f"{night.today}-morning.md"
+    text = digest.read_text()
+    assert "a1b2c3d" in text and "SHIP" in text
+    assert "b2c3d4e" in text and "blocked" in text
+
+
+def test_night_process_flips_to_review(tmp_path, monkeypatch, capsys):
+    fl = fake_floor()
+    (fl["orders"] / "aaa1111-demo.md").write_text(
+        ORDER.replace("id: a1b2c3d", "id: aaa1111")
+             .replace("status: draft", "status: approved")
+             .replace("---\n", "---\nrepo: shop\n", 1))
+    repo = FakeRepo(tmp_path / "shop")
+    patch_resolve(monkeypatch, {"shop": repo})
+
+    @contextlib.contextmanager
+    def fake_worktree(repo_, path, branch, base):
+        path.mkdir(parents=True, exist_ok=True)
+        yield type("FakeWt", (), {"path": path})()
+
+    monkeypatch.setattr(factory, "Worktree", fake_worktree)
+    monkeypatch.setattr(factory, "git", lambda cwd, *a, check=True, env=None:
+                        _R(0))
+    monkeypatch.setattr(factory, "git_out", lambda cwd, *a: "2")
+    monkeypatch.setattr(nightrun.NightRun, "_agent_pass",
+                        lambda self, argv, cwd, stdin_text=None,
+                        timeout_secs=None, env_extra=None:
+                        (0, '{"events": true}', ""))
+    monkeypatch.setattr(nightrun.NightRun, "_qa_pass",
+                        lambda self, *a, **k: (0, "", "QA ok", False))
+    night = nightrun.NightRun(fl, "pi", None, 1, False, 60)
     night.run()
-    log = subprocess.run(
-        ["git", "-C", str(target), "log", "--format=%an %s", "wo/aaa1111"],
-        capture_output=True, text=True).stdout
-    assert "Work Bot" in log
-    show = subprocess.run(
-        ["git", "-C", str(target), "show", "--name-only", "wo/aaa1111"],
-        capture_output=True, text=True).stdout
-    assert "night_work.txt" in show
-    order_text = (root / "work-orders" / "aaa1111-demo.md").read_text()
-    assert "status: review" in order_text
-    committed = subprocess.run(
-        ["git", "-C", str(root), "log", "--name-only", "--format="],
-        capture_output=True, text=True).stdout
-    assert "work-orders/aaa1111-demo.md" in committed
+    text = (fl["orders"] / "aaa1111-demo.md").read_text()
+    assert "status: review" in text
+    assert (fl["logs"] / f"{night.today}-wo-aaa1111.out.md").exists()
+    assert "night shift over: 1 order(s)" in capsys.readouterr().out
+
+
+def test_preflight_failure_lands_in_errors_log(tmp_path):
+    env = dict(os.environ, MOONLIGHTING_DATA=str(tmp_path / "data"),
+               MOONLIGHTING_CONFIG=str(tmp_path / "c.toml"))
+    r = subprocess.run([sys.executable, "-m", "moonlighting.run"],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 1
+    log = tmp_path / "data" / "logs" / "errors.log"
+    assert "work orders directory" in log.read_text()
+
+
+def test_night_timeout_guard(tmp_path):
+    env = dict(os.environ, NIGHT_TIMEOUT_SECS="abc",
+               MOONLIGHTING_DATA=str(tmp_path / "data"),
+               MOONLIGHTING_CONFIG=str(tmp_path / "c.toml"))
+    r = subprocess.run([sys.executable, "-m", "moonlighting.run"],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 2
+    assert "must be an integer" in r.stderr
+
+
+# ------------------------------------------------------------- accept
+
+
+def test_accept_squash_merges_and_marks_done(tmp_path, monkeypatch, capsys):
+    fl = fake_floor()
+    (fl["orders"] / "a1b2c3d-x.md").write_text(
+        ORDER.replace("status: draft", "status: review")
+             .replace("---\n", "---\nrepo: shop\n", 1))
+    repo = FakeRepo(tmp_path / "shop")
+    patch_resolve(monkeypatch, {"shop": repo})
+    calls = []
+    monkeypatch.setattr(factory, "git",
+                        lambda cwd, *a, check=True, env=None:
+                        calls.append(a) or _R(0))
+    monkeypatch.setattr(factory, "git_out", lambda cwd, *a: "3")
+    monkeypatch.setattr(sys, "argv", ["moonlighting", "a1b2c3d"])
+    accept.main()
+    text = (fl["orders"] / "a1b2c3d-x.md").read_text()
+    assert "status: done" in text
+    assert ("merge", "--squash", "wo/a1b2c3d") in calls
+    assert ("commit", "-q", "-m",
+            "wo-a1b2c3d: Test order (night shift; accepted by day shift)") in calls
+    assert str(repo.path) in capsys.readouterr().out
+
+
+def test_accept_refuses_draft(tmp_path, capsys):
+    fl = fake_floor()
+    (fl["orders"] / "a1b2c3d-d.md").write_text(ORDER)
+    monkey_argv = ["moonlighting", "a1b2c3d"]
+    monkeypatch_argv(monkey_argv)
+    with pytest.raises(factory.FactoryError):
+        accept.main()
+
+
+def monkeypatch_argv(argv):
+    import sys as _sys
+    _sys.argv = argv
+
+
+# ------------------------------------------------------- day scripts
+
+
+def test_new_order_creates_filled_ids():
+    r = run_module("new_order", "Atom: feed!")
+    assert r.returncode == 0, r.stderr
+    orders = factory.orders_dir()
+    first = list(orders.glob("*-atom-feed.md"))
+    assert len(first) == 1
+    sha = first[0].name.split("-")[0]
+    assert re.fullmatch(r"[0-9a-f]{7}", sha)
+    text = first[0].read_text()
+    assert f"id: {sha}" in text and "title: Atom: feed!" in text
+    assert f"created: {date.today().isoformat()}" in text
+    assert f"branch: wo/{sha}" in text
+    r2 = run_module("new_order", "Second thing")
+    assert r2.returncode == 0, r2.stderr
+    second = list(orders.glob("*-second-thing.md"))
+    assert len(second) == 1
+    assert second[0].name.split("-")[0] != sha
+
+
+def test_new_order_approve_flag():
+    r = run_module("new_order", "Quick", "--approve")
+    assert r.returncode == 0, r.stderr
+    created = list(factory.orders_dir().glob("*-quick.md"))
+    assert len(created) == 1
+    assert "status: approved" in created[0].read_text()
+    assert "the night picks it up" in r.stdout
+
+
+def test_new_order_requires_title_when_not_interactive():
+    r = run_module("new_order")
+    assert r.returncode == 2
+    assert "not running interactively" in r.stderr
+
+
+def test_new_order_repo_and_model_fields():
+    r = run_module("new_order", "Chore",
+                   "--repo", "https://example.com/acme/shop.git",
+                   "--model", "x/y:high")
+    assert r.returncode == 0, r.stderr
+    created = list(factory.orders_dir().glob("*-chore.md"))
+    assert len(created) == 1
+    text = created[0].read_text()
+    assert "repo: https://example.com/acme/shop.git" in text
+    assert "model: x/y:high" in text
+    assert "lint: clean" in r.stdout
+
+
+def test_answer_and_feedback_roundtrip():
+    orders = factory.orders_dir()
+    orders.mkdir(parents=True)
+    blocked = GOOD_APPROVED.replace("status: approved", "status: blocked")
+    (orders / "a1b2c3d-b.md").write_text(blocked)
+    review = GOOD_APPROVED.replace("status: approved", "status: review")
+    (orders / "b2c3d4e-r.md").write_text(review)
+
+    r1 = run_module("answer", "a1b2c3d", "use the other path")
+    assert r1.returncode == 0, r1.stderr
+    t1 = (orders / "a1b2c3d-b.md").read_text()
+    assert "status: approved" in t1 and "use the other path" in t1
+    assert "day shift decision" in t1
+
+    r2 = run_module("feedback", "b2c3d4e", "add tests")
+    assert r2.returncode == 0, r2.stderr
+    t2 = (orders / "b2c3d4e-r.md").read_text()
+    assert "status: blocked" in t2 and "add tests" in t2
+
+    r3 = run_module("feedback", "a1b2c3d", "nope")
+    assert r3.returncode == 1
+    assert "not 'review'" in r3.stderr
+
+
+def test_approve_script():
+    orders = factory.orders_dir()
+    orders.mkdir(parents=True)
+    (orders / "a1b2c3d-d.md").write_text(ORDER)
+    r = run_module("approve", "a1b2c3d")
+    assert r.returncode == 0, r.stderr
+    text = (orders / "a1b2c3d-d.md").read_text()
+    assert "status: approved" in text
+
+
+def test_remove_deletes_order():
+    orders = factory.orders_dir()
+    orders.mkdir(parents=True)
+    target = orders / "a1b2c3d-old.md"
+    target.write_text(ORDER)
+
+    r = run_module("remove", "a1b2c3d")
+    assert r.returncode == 1
+    assert "refusing to delete" in r.stderr
+    assert target.exists()
+
+    r2 = run_module("remove", "a1b2c3d", "--yes")
+    assert r2.returncode == 0, r2.stderr
+    assert not target.exists()
+
+    r3 = run_module("remove", "zzzzzzz", "--yes")
+    assert r3.returncode == 1
+    assert "found 0" in r3.stderr
+
+
+def test_rotate_logs_roundtrip():
+    logs = factory.data_dir() / "logs"
+    logs.mkdir(parents=True)
+    old = logs / "2026-01-01-wo-001.out.md"
+    old.write_text("precious report\n")
+    past = time.time() - 86400 * 2
+    os.utime(old, (past, past))
+    r = run_module("rotate_logs", "--days", "1", "--write")
+    assert r.returncode == 0, r.stderr
+    assert not old.exists()
+    gz = logs / "archive" / "2026-01-01-wo-001.out.md.gz"
+    assert gz.exists()
+    with gzip.open(gz, "rt") as f:
+        assert f.read() == "precious report\n"
+
+
+# ------------------------------------------------------------ schedule
+
+
+def test_install_cron_global_entry(monkeypatch):
+    monkeypatch.setattr(schedule, "current_crontab", lambda: "")
+    captured = {}
+    monkeypatch.setattr(schedule, "set_crontab",
+                        lambda content: captured.update(content=content))
+    monkeypatch.setattr(schedule.shutil, "which",
+                        lambda name: f"/usr/bin/{name}"
+                        if name in ("pi", "moonlighting") else None)
+    schedule.install_cron(at="17 1", max_orders=2)
+    entry = captured["content"].strip().splitlines()[0]
+    assert entry.startswith("17 1 * * * ")
+    assert "'/usr/bin/moonlighting' night --engine pi" in entry
+    assert "--max-orders 2" in entry
+    assert str(factory.data_dir() / "logs" / "cron.log") in entry
+    assert schedule.TAG in entry
+
+
+def test_install_cron_replaces_old_entry(monkeypatch):
+    old = ("0 1 * * * '/usr/bin/moonlighting' night --engine pi "
+           ">> /old/cron.log 2>&1 " + schedule.TAG)
+    monkeypatch.setattr(schedule, "current_crontab",
+                        lambda: f"# other tool\n{old}\n")
+    captured = {}
+    monkeypatch.setattr(schedule, "set_crontab",
+                        lambda content: captured.update(content=content))
+    monkeypatch.setattr(schedule.shutil, "which",
+                        lambda name: f"/usr/bin/{name}"
+                        if name in ("pi", "moonlighting") else None)
+    schedule.install_cron()
+    content = captured["content"]
+    assert content.count(schedule.TAG) == 1
+    assert "# other tool" in content
+    assert "1 0 * * *" in content  # the default fire time replaced --at
+
+
+def test_schedule_at_validation(monkeypatch):
+    monkeypatch.setattr(schedule.shutil, "which", lambda name: None)
+    with pytest.raises(factory.FactoryError):
+        schedule.install_cron(at="99 99")

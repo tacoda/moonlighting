@@ -3,13 +3,12 @@
     moonlighting night --engine pi
     moonlighting new-order "Title"
 
-Run with --dev to work on a factory checkout in the current directory.
-Everything runs through uv under the hood.
+Run with --help to see every workflow. Everything runs through uv under
+the hood when invoked from a checkout; the installed binary is standalone.
 """
 
 from __future__ import annotations
 
-import os
 import sys
 from importlib import import_module
 
@@ -56,15 +55,8 @@ def run_workflow(workflow: str, ctx: typer.Context) -> None:
 
 
 @app.callback(invoke_without_command=True)
-def main(
-    ctx: typer.Context,
-    dev: bool = typer.Option(
-        False, "--dev", envvar="MOONLIGHTING_DEV",
-        help="Work on a factory checkout in the current directory."),
-):
+def main(ctx: typer.Context):
     """Run factory workflows. See the subcommands below."""
-    if dev:
-        os.environ["MOONLIGHTING_DEV"] = "1"
     if ctx.invoked_subcommand is None:
         print(ctx.get_help())
 

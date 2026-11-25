@@ -42,6 +42,50 @@ def set_crontab(content: str) -> None:
         factory.die(f"crontab install failed: {r.stderr.strip()}")
 
 
+def install_cron(at="1 0", max_orders=3, engine=None, model=None,
+                 qa_model=None) -> None:
+    """Install (or replace) the nightly entry. Works in dev mode (uv run
+    inside the checkout) and in global mode (the installed binary)."""
+    try:
+        minute, hour = (int(p) for p in at.split())
+    except ValueError:
+        factory.die("--at takes 'minute hour', e.g. --at '17 1'", 2)
+    if not (0 <= minute <= 59 and 0 <= hour <= 23):
+        factory.die("--at takes 'minute hour' in range (minute 0-59, hour 0-23)", 2)
+
+    engine = (engine or os.environ.get("FACTORY_ENGINE")
+              or factory.factory_setting("engine") or "pi")
+    bin_var = f"{engine.upper()}_BIN"
+    bin_val = os.environ.get(bin_var) or shutil.which(engine)
+    if not bin_val:
+        factory.die(f"{engine} not found on PATH (set {bin_var})")
+    model_part = f" --model '{model}'" if model else ""
+    qa_model_part = f" --qa-model '{qa_model}'" if qa_model else ""
+    orders_env = os.environ.get("FACTORY_ORDERS_DIR")
+    orders_part = f" FACTORY_ORDERS_DIR='{orders_env}'" if orders_env else ""
+    cfg_env = os.environ.get(factory.CONFIG_ENV)
+    cfg_part = f" MOONLIGHTING_CONFIG='{cfg_env}'" if cfg_env else ""
+
+    mbin = shutil.which("moonlighting")
+    if not mbin:
+        factory.die("the moonlighting binary is not on PATH "
+                    "(install with: uv tool install moonlighting-factory)")
+    logs = factory.data_dir() / "logs"
+    entry = (f"{minute} {hour} * * * {orders_part}{cfg_part} "
+             f"{bin_var}='{os.path.abspath(bin_val)}' '{mbin}' night "
+             f"--engine {engine}{model_part}{qa_model_part} "
+             f"--max-orders {max_orders} "
+             f">> '{logs / 'cron.log'}' 2>&1 {TAG}")
+
+    kept = [line for line in current_crontab().splitlines() if TAG not in line]
+    kept.append(entry)
+    set_crontab("\n".join(kept) + "\n")
+    print("night schedule installed:")
+    print(f"  {entry}")
+    print("the cron fires harmlessly when the queue is empty; "
+          "remove with: moonlighting schedule remove")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Schedule the night shift via cron.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -50,9 +94,9 @@ def main() -> None:
                       help="daily fire time (default: 1 0, i.e. 00:01)")
     inst.add_argument("--max-orders", type=int, default=3,
                       help="orders per night (default: 3)")
-    inst.add_argument("--engine", default=os.environ.get("FACTORY_ENGINE", "pi"),
-                      help="host agent: pi, claude or opencode (default pi). "
-                           "env FACTORY_ENGINE")
+    inst.add_argument("--engine", default=None,
+                      help="host agent: pi, claude or opencode. env "
+                           "FACTORY_ENGINE, then the config file, then pi")
     inst.add_argument("--model", default=os.environ.get("FACTORY_MODEL"),
                       help="model string for the engine, passed verbatim "
                            "(host-specific syntax). env FACTORY_MODEL")
@@ -63,55 +107,21 @@ def main() -> None:
     sub.add_parser("status", help="show the nightly entry, if any")
     args = ap.parse_args()
 
-    root = factory.repo_root()
-    lines = current_crontab().splitlines()
-    kept = [line for line in lines if TAG not in line]
+    if args.cmd == "install":
+        install_cron(at=args.at, max_orders=args.max_orders,
+                     engine=args.engine, model=args.model,
+                     qa_model=args.qa_model)
+        return
 
+    lines = current_crontab().splitlines()
     if args.cmd == "remove":
+        kept = [line for line in lines if TAG not in line]
         set_crontab("\n".join(kept) + "\n" if kept else "")
         print("night schedule removed")
         return
 
-    if args.cmd == "status":
-        found = [line for line in lines if TAG in line]
-        print("\n".join(found) if found else "not installed")
-        return
-
-    try:
-        minute, hour = args.at.split()
-        minute, hour = int(minute), int(hour)
-    except ValueError:
-        factory.die("--at takes 'minute hour', e.g. --at '17 1'", 2)
-    if not (0 <= minute <= 59 and 0 <= hour <= 23):
-        factory.die("--at takes 'minute hour' in range (minute 0-59, hour 0-23)", 2)
-
-    engine = args.engine
-    bin_var = f"{engine.upper()}_BIN"
-    bin_val = os.environ.get(bin_var) or shutil.which(engine)
-    if not bin_val:
-        factory.die(f"{engine} not found on PATH (set {bin_var})")
-    model_part = f" --model '{args.model}'" if args.model else ""
-    qa_model_part = f" --qa-model '{args.qa_model}'" if args.qa_model else ""
-    orders_env = os.environ.get("FACTORY_ORDERS_DIR")
-    orders_part = f" FACTORY_ORDERS_DIR='{orders_env}'" if orders_env else ""
-    cfg_env = os.environ.get("MOONLIGHTING_CONFIG")
-    cfg_part = f" MOONLIGHTING_CONFIG='{cfg_env}'" if cfg_env else ""
-    uv = shutil.which("uv")
-    if not uv:
-        factory.die("uv not found on PATH (install https://docs.astral.sh/uv)")
-    entry = (f"{minute} {hour} * * * cd '{root}' "
-             f"&&{orders_part}{cfg_part} {bin_var}='{os.path.abspath(bin_val)}' "
-             f"'{uv}' run moonlighting night --engine {engine}"
-             f"{model_part}{qa_model_part} "
-             f"--max-orders {args.max_orders} "
-             f">> night-shift/logs/cron.log 2>&1 {TAG}")
-
-    kept.append(entry)
-    set_crontab("\n".join(kept) + "\n")
-    print("night schedule installed:")
-    print(f"  {entry}")
-    print("the cron fires harmlessly when the queue is empty; "
-          "remove with: moonlighting schedule remove")
+    found = [line for line in lines if TAG in line]
+    print("\n".join(found) if found else "not installed")
 
 
 if __name__ == "__main__":

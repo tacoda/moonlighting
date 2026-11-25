@@ -1,43 +1,36 @@
 # AGENTS.md — moonlighting
 
-A software factory. Humans work the day shift (deciding), pi agents work the
-night shift (doing). Work moves through the factory as **work orders**: small
-markdown files in `work-orders/` whose `status:` frontmatter line is the
-contract between shifts.
+A software factory in one package. Humans write work orders by day. AI
+agents execute them at night under the nWave guard. This repo develops the
+`moonlighting` CLI (PyPI: `moonlighting-factory`). The installed tool runs
+from the user's config and data directories, not from a checkout.
 
 ## Layout
 
-- `work-orders/<sha>-short-title.md` — one file per unit of work. Each order carries a unique 7-char sha id
-- `moonlighting night` — executes approved orders headlessly
-- `night-shift/NIGHT-SHIFT.md` — the night agent's operating manual
-- `moonlighting status` — floor report · `moonlighting accept ID` — squash-merge an order into its target repo
-- `repos/` — target repos cloned from git URLs (gitignored)
-- `docs/runbook.md` — shift checklists · `docs/work-order-template.md` — order template · `PLAN.md` — roadmap
+- `src/moonlighting/` — the package: factory model, workflow modules,
+  engines, `manuals/` (NIGHT-SHIFT.md, QA-SHIFT.md), and `templates/`
+  (work-order-template.md)
+- `tests/` — fake-based pytest suite. Run with `uv run pytest`. No git
+  repos, no network
+- `docs/` — runbook, flow diagrams, config sample
+- `work-orders/` — archived orders from the pre-package era. History only.
+  Never edit
+- `PLAN.md` — phased roadmap
 
-## Status lifecycle
+## Where user state lives (never in this repo)
 
-```
-draft → approved → review → done
-             │         │
-             ▼         ▼
-          blocked ◄────┘        rejected (from anywhere)
-```
-
-Only humans move work into or out of `approved`, `blocked`, `done`, `rejected`.
-The night runner moves `approved → review` (or `→ blocked` when a run fails).
+- Config: `~/.config/moonlighting/config.toml` (env `MOONLIGHTING_CONFIG`)
+- Data: orders, logs, locks, sessions, cloned target repos — under
+  `~/.local/share/moonlighting/` (env `MOONLIGHTING_DATA`)
 
 ## Rules for agents in this repo
 
-- Execute only orders whose status is `approved`, only through the night-shift flow.
-- Work on the order's own branch (`wo/<id>`). Never merge, never push, never commit to `main`.
-- Never edit order files — not statuses, not logs, not decision sections.
-  Those belong to humans and the runner. Reading orders is expected.
-- An order may target another repo (`repo:` field). The runner places you in
-  a throwaway git worktree of that repo with your branch checked out — the
-  same rules apply there: never `main`, never push, never touch order files.
-- Unclear order? Stop and report BLOCKED. Never guess.
-- Humans append answers under an order's *Day shift decisions* section and
-  re-approve blocked orders; re-read the order file at the start of every run.
+- Prove changes with `uv run pytest` before claiming done.
+- Ship with a version bump in `pyproject.toml`, then `uv build && uv
+  publish`, then push.
+- The day/night contract and status lifecycle live in README.md,
+  docs/runbook.md and the packaged manuals. Change docs with the code.
+- Agents never edit order files. Only humans move orders between statuses.
 
 <!-- BEGIN nWave-beta-section (managed by nwave-ai; do not edit) -->
 

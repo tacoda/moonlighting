@@ -20,27 +20,26 @@ def main() -> None:
                     help="skip the confirmation prompt")
     args = ap.parse_args()
 
-    root = factory.repo_root()
-    matches = sorted(factory.orders_dir(root).glob(f"{args.id}*.md"))
+    matches = sorted(factory.orders_dir().glob(f"{args.id}*.md"))
     if len(matches) != 1:
         factory.die(f"expected exactly one order matching '{args.id}*', "
                     f"found {len(matches)}")
     target = matches[0]
-    order = factory.WorkOrder(target, root)
+    order = factory.WorkOrder(target)
     note = ""
     if order.status == "done":
         note = " — the run logs keep its record"
 
     if args.yes:
         target.unlink()
-        print(f"removed {target.relative_to(root)} [{order.status}]{note}")
+        print(f"removed {target} [{order.status}]{note}")
         return
 
     if sys.stdin.isatty():
         answer = input(f"delete {target.name} [{order.status}]? [y/N]: ")
         if answer.strip().lower() in ("y", "yes"):
             target.unlink()
-            print(f"removed {target.relative_to(root)}{note}")
+            print(f"removed {target}{note}")
             return
         print("kept")
         return
