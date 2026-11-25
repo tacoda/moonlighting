@@ -52,7 +52,7 @@ wheels = [
 ]
 
 [[package]]
-name = "moonlighting"
+name = "moonlighting-factory"
 version = "0.1.0"
 source = { editable = "." }
 

@@ -13,7 +13,7 @@
        nwave-ai install --platform opencode
        nwave-ai mode all
 
-4. Install the factory command: `uv tool install moonlighting` — or run it
+4. Install the factory command: `uv tool install moonlighting-factory` — or run it
    from a checkout with `uv run moonlighting ...` after `uv sync`.
 5. Make an initial commit: the night runner needs a clean tree on `main` with
    at least one commit.

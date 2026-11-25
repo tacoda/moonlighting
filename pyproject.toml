@@ -1,5 +1,5 @@
 [project]
-name = "moonlighting"
+name = "moonlighting-factory"
 version = "0.1.0"
 description = "A software factory: people decide by day, agents type by night."
 requires-python = ">=3.9"

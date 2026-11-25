@@ -36,7 +36,7 @@ moonlighting schedule install       nightly cron at 00:01 (remove and status too
 
 uv runs everything under the hood. Commands work through
 `uv run moonlighting ...` inside a factory checkout, or globally after
-`uv tool install moonlighting`.
+`uv tool install moonlighting-factory`.
 
 ## Layout
 
