@@ -12,7 +12,7 @@ Marking an order `approved` is a standing instruction: tonight, an agent
 executes it autonomously. In the morning it sits at `review` — with a report,
 a branch, and a diff, waiting for a human decision.
 
-```
+```text
 day shift (people)                     night shift (selected engine)
 decide what problems matter  ──────►   implement approved orders
 review branches & reports    ◄──────   flip orders to review/blocked
@@ -22,18 +22,22 @@ merge, block, or reject               never merge, never touch main
 The night runs on one command:
 
 ```bash
-./night-shift/run.py              # execute the oldest approved order
+uv run python night-shift/run.py    # execute the oldest approved order
 ```
 
 and the morning starts with another:
 
 ```bash
-./day-shift/status.py             # what needs my decision?
+uv run python day-shift/status.py   # what needs my decision?
 ```
+
+The same workflows live in `bin/` as short scripts: `bin/night`, `bin/status`,
+`bin/new-order`, `bin/accept`, `bin/lint-orders`, `bin/rotate-logs`, and
+`bin/schedule`.
 
 ## Layout
 
-```
+```text
 work-orders/            order files (input, gitignored; FACTORY_ORDERS_DIR relocates it)
 night-shift/run.py      the night runner (headless pi, claude or opencode)
 night-shift/NIGHT-SHIFT.md   the night agent's operating manual
@@ -49,6 +53,7 @@ day-shift/status.py     factory floor report
 day-shift/new-order.py  create the next order from the template
 day-shift/accept.py     squash-merge a reviewed order into its target repo
 day-shift/rotate-logs.py    gzip old night logs into logs/archive/ (never deletes)
+bin/                    short wrappers: night, status, new-order, accept, and more
 factory.py              shared helpers for the factory scripts
 docs/work-order-template.md  how orders are written
 docs/runbook.md         shift checklists (morning, handover, forensics)
@@ -111,8 +116,8 @@ Every run is double-checked by default:
 One factory process per target repo; processes run in parallel:
 
 ```bash
-python3 night-shift/run.py --repo ~/repos/shop
-python3 night-shift/run.py --repo git@github.com:acme/api.git --engine claude
+uv run python night-shift/run.py --repo ~/repos/shop
+uv run python night-shift/run.py --repo git@github.com:acme/api.git --engine claude
 ```
 
 Locks make collisions visible: one night per target repo, one night per
@@ -122,21 +127,20 @@ and run one process in each:
 ```bash
 git clone ~/repos/moonlighting ~/factories/shop-factory
 cd ~/factories/shop-factory
-python3 night-shift/run.py --repo ~/repos/shop
+uv run python night-shift/run.py --repo ~/repos/shop
 # in another terminal, another clone, another repo, same time — no conflict
 ```
 
 The morning is still one command per factory:
 
 ```bash
-python3 day-shift/status.py
+uv run python day-shift/status.py
 ```
 
 ## Requirements
 
-- git and Python 3.9+ (the runtime needs only the standard library)
-- for development: [uv](https://docs.astral.sh/uv/) — `uv sync` installs
-  pytest, `uv run pytest` runs the suite
+- git, Python 3.9+, and [uv](https://docs.astral.sh/uv/). The factory code
+  is stdlib-only. uv runs everything: `uv run python ...`, `uv run pytest`
 - the host CLI for your selected engine, logged in. Pick [pi](https://pi.dev)
   (`pi` → `/login` once), Claude Code (`claude` installed and logged in)
   and/or [opencode](https://opencode.ai) (`opencode auth login` once). Or
@@ -145,9 +149,12 @@ python3 day-shift/status.py
 
 ## First night
 
-1. `python3 day-shift/new-order.py "My task"` and fill it in
+1. `uv run python day-shift/new-order.py "My task"` and fill it in
 2. Flip `status: draft` → `approved` — this is the handover
-3. `python3 night-shift/run.py`
-4. Tomorrow: `./day-shift/status.py` → review the diff → `./day-shift/accept.py 001`
+3. `uv run python night-shift/run.py`
+4. Tomorrow: `uv run python day-shift/status.py` → review the diff →
+   `uv run python day-shift/accept.py 001`
+5. Optional: `uv run python night-shift/schedule.py install` runs the night
+   daily at 00:01
 
 The full shift checklists live in [`docs/runbook.md`](docs/runbook.md).

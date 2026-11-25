@@ -5,8 +5,8 @@ Logs are the factory's append-only memory. This tool compresses log
 files older than --days into night-shift/logs/archive/ so the directory
 stays readable. Preview by default. Pass --write to rotate.
 
-    python3 day-shift/rotate-logs.py --days 90           # preview
-    python3 day-shift/rotate-logs.py --days 90 --write   # rotate
+    uv run python day-shift/rotate-logs.py --days 90           # preview
+    uv run python day-shift/rotate-logs.py --days 90 --write   # rotate
 """
 
 from __future__ import annotations

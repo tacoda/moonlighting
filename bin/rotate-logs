@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Wrapper: gzip old night logs. Flags pass through (--days, --write).
+cd "$(dirname "$0")/.." || exit 1
+exec uv run python day-shift/rotate-logs.py "$@"

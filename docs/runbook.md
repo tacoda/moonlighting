@@ -15,11 +15,13 @@
 
 4. Make an initial commit: the night runner needs a clean tree on `main` with
    at least one commit.
-5. Smoke-test: `python3 night-shift/run.py --dry-run`
-6. When you trust the loop, let nights start themselves:
-   `python3 night-shift/schedule.py install [--engine pi|claude|opencode]`
-   (fires nightly, harmlessly no-ops on an empty queue, `remove` undoes it,
-   `status` shows the entry).
+5. Orders are input, not source: they live in the gitignored `work-orders/`
+   directory by default. Set `FACTORY_ORDERS_DIR` to point somewhere else.
+6. Smoke-test: `uv run python night-shift/run.py --dry-run`
+7. When you trust the loop, let nights start themselves:
+   `uv run python night-shift/schedule.py install [--engine pi|claude|opencode]`
+   (fires nightly at 00:01, harmlessly no-ops on an empty queue, `remove`
+   undoes it, `status` shows the entry).
 
 > The runner invokes pi with `--approve`, which trusts project-local
 > configuration so the night can run unattended. Only run the night shift in
@@ -27,10 +29,10 @@
 
 ## Writing orders (day shift)
 
-- `python3 day-shift/new-order.py "Title" [--repo R] [--model M]` creates the
+- `uv run python day-shift/new-order.py "Title" [--repo R] [--model M]` creates the
   next order: id, filename slug, date and branch come filled in. One order =
   one branch = one review. Ids are never reused, even after `done`.
-- Before approving: `python3 night-shift/lint-order.py` — it catches
+- Before approving: `uv run python night-shift/lint-order.py` — it catches
   malformed orders (missing fields, empty sections, bad repo paths) before
   they spend tokens. The night runner also lint-blocks approved orders
   automatically.
@@ -57,15 +59,17 @@
    Target repos don't need to be clean anymore: nights run in throwaway
    worktrees (`night-shift/worktrees/`, removed after each run) and never
    touch your working copies.
-2. `python3 night-shift/run.py --dry-run [--repo R]` — preview tonight's queue.
+2. `uv run python night-shift/run.py --dry-run [--repo R]` — preview tonight's
+   queue.
 3. One factory process per repo; separate factory clones run in parallel:
 
-       python3 night-shift/run.py --repo ~/repos/shop
-       python3 night-shift/run.py --repo git@github.com:acme/api.git --engine claude
+       uv run python night-shift/run.py --repo ~/repos/shop
+       uv run python night-shift/run.py --repo git@github.com:acme/api.git --engine claude
 
    `--repo` takes a path or URL and only runs that repo's orders; the default
    works this factory's own queue. Pick the host with `--engine
-   pi|claude|opencode` and the model with `--model` (host-specific syntax).
+   pi|claude|opencode`, the model with `--model`, and the reviewer model
+   with `--qa-model` (all host-specific syntax).
 4. `--max-orders N` for a longer night; an order that runs past
    `NIGHT_TIMEOUT_SECS` (default 7200s) is killed and marked blocked.
 5. Locks: a second process on the same repo or the same factory checkout
@@ -74,7 +78,7 @@
 
 ## Morning checklist (day shift)
 
-1. `python3 day-shift/status.py` (all repos, filter with `--repo`). The
+1. `uv run python day-shift/status.py` (all repos, filter with `--repo`). The
    night also writes `logs/YYYY-MM-DD-morning.md` with the verdicts.
 2. For each `review` order:
    - Read the **QA pre-shift verdict** (SHIP/BLOCK/UNSURE) and the agent's
@@ -82,7 +86,7 @@
      shortcut; spot-check what it flags.
    - Review the branch **in its target repo**:
      `git -C <target> diff main...wo/NNN` — run the result if warranted.
-   - Good → `python3 day-shift/accept.py NNN` (squash-merges into the target's
+   - Good → `uv run python day-shift/accept.py NNN` (squash-merges into the target's
      main, marks done). Push the target repo yourself — the factory never
      pushes.
    - Not there yet → set `blocked`, append your question under
@@ -121,6 +125,9 @@
 - Logs are append-only. They are the factory's memory; never delete them.
   `day-shift/rotate-logs.py --days 90 --write` gzips old files into
   `logs/archive/` without losing content.
+- Short wrappers in `bin/` run the common workflows: `bin/night`, `bin/status`,
+  `bin/new-order`, `bin/accept`, `bin/lint-orders`, `bin/rotate-logs`, and
+  `bin/schedule`.
 - Change the factory scripts? Run the suite: `uv run pytest`.
 
 ## Night-branch base policy

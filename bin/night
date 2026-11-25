@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Wrapper: run the night shift. Flags pass through (--repo, --engine, --model).
+cd "$(dirname "$0")/.." || exit 1
+exec uv run python night-shift/run.py "$@"

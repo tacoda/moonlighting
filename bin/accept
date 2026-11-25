@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Wrapper: squash-merge a reviewed order. Usage: bin/accept NNN.
+cd "$(dirname "$0")/.." || exit 1
+exec uv run python day-shift/accept.py "$@"

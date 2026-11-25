@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """day-shift/new-order.py TITLE — create the next work order from the template.
 
-    python3 day-shift/new-order.py "Atom feed for the essays"
-    python3 day-shift/new-order.py "Error contract" --repo ~/repos/lark
+    uv run python day-shift/new-order.py "Atom feed for the essays"
+    uv run python day-shift/new-order.py "Error contract" --repo ~/repos/lark
 
 Picks the next free id, slugs the title into the filename, and fills the
 frontmatter. Orders live outside git: the file lands in the orders
