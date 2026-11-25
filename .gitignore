@@ -8,3 +8,4 @@ night-shift/logs/errors.log
 night-shift/locks/
 night-shift/worktrees/
 night-shift/logs/cron.log
+night-shift/sessions.json

@@ -104,7 +104,7 @@
   every tool call, every token, archived. This is the factory's flight
   recorder.
 - Sessions — pi: `pi --session wo-NNN`. claude: `claude --resume <uuid>`.
-  opencode: the id (`ses_...`) from `night-shift/sessions.json`.
+  opencode: the id (`ses_...`) from the local `night-shift/sessions.json`.
 - Worktrees — created per run under `night-shift/worktrees/`, removed when
   the run ends. To poke at a finished night: `git -C <target> diff
   main...wo/NNN`, or `git -C <target> worktree add /tmp/poke wo/NNN`.

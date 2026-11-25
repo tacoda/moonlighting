@@ -41,7 +41,7 @@ night-shift/QA-SHIFT.md      the QA pre-shift reviewer's manual
 night-shift/lint-order.py    validate work orders before spending tokens
 night-shift/schedule.py      install/remove the nightly cron entry
 night-shift/logs/       run reports, QA packets, event streams, morning digest (append-only)
-night-shift/sessions.json   engine session ids per order (claude and opencode engines)
+night-shift/sessions.json   engine session ids per order (local state, gitignored)
 night-shift/locks/      run locks (gitignored)
 night-shift/worktrees/  per-run worktrees of target repos (gitignored, removed after each run)
 repos/                  target repos cloned from git URLs (gitignored)

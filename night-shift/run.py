@@ -349,10 +349,9 @@ class NightRun:
                     f"{secs}s — report in order file; "
                     f"raw: {outfile.relative_to(self.root)}\n")
 
-        # order files are input and stay untracked. The logs carry the record.
+        # order files and sessions.json are local state and stay untracked.
+        # The logs carry the record.
         add_paths = ["night-shift/logs"]
-        if (self.root / "night-shift" / "sessions.json").exists():
-            add_paths.append("night-shift/sessions.json")
         factory.git(self.root, "add", *add_paths)
         factory.git(self.root, "commit", "-q", "-m",
                     f"night-shift: wo-{order.id} -> {new_status} "

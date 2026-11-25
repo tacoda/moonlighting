@@ -52,10 +52,16 @@ def main() -> None:
         path.unlink()
         rotated += 1
 
-    if args.write:
-        print(f"{rotated} file(s) rotated into {archive.relative_to(root)}")
-    else:
+    if not args.write:
         print(f"{rotated} file(s) old enough to rotate")
+        return
+    if rotated:
+        factory.git(root, "add", "night-shift/logs")
+        factory.git(root, "commit", "-q", "-m",
+                    f"rotate-logs: archive {rotated} file(s) older than "
+                    f"{args.days} days")
+        print("rotation committed")
+    print(f"{rotated} file(s) rotated into {archive.relative_to(root)}")
 
 
 if __name__ == "__main__":

@@ -611,3 +611,7 @@ def test_rotate_logs_roundtrip(tmp_path):
     assert gz.exists()
     with gzip.open(gz, "rt") as f:
         assert f.read() == "precious report\n"
+    log_line = subprocess.run(
+        ["git", "-C", str(root), "log", "--oneline", "-1"],
+        capture_output=True, text=True).stdout
+    assert "rotate-logs" in log_line
