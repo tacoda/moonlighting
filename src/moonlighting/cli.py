@@ -140,11 +140,19 @@ def new_order_cmd(ctx: typer.Context,
                   body_file: str | None = typer.Option(
                       None, "--body-file",
                       help="Read body content from this file. '-' reads "
-                      "stdin.")):
+                      "stdin."),
+                  engine: str | None = typer.Option(
+                      None, "--engine",
+                      help="Harness for this order. Beats the repo binding "
+                      "and the factory setting."),
+                  qa_model: str | None = typer.Option(
+                      None, "--qa-model",
+                      help="QA model for this order.")):
     _forward(ctx, "new_order", [title] if title else [],
              [("--repo", repo), ("--model", model),
               ("--approve", approve), ("--draft", draft),
-              ("--body", body), ("--body-file", body_file)])
+              ("--body", body), ("--body-file", body_file),
+              ("--engine", engine), ("--qa-model", qa_model)])
 
 
 @app.command("night", help="Run every approved order through the nWave guard.",

@@ -29,14 +29,27 @@ class NightRun:
     """One night shift: collect the approved queue, execute it under locks,
     bookkeep in the factory repo."""
 
-    def __init__(self, fl: dict, engine_name: str, repo_filter: str | None,
+    def __init__(self, fl: dict, engine_name: str | None,
+                 repo_filter: str | None,
                  max_orders: int, dry_run: bool, timeout_secs: int,
                  model: str | None = None, qa_model: str | None = None):
         self.fl = fl
-        self.engine_name = engine_name
-        self.engine = factory.engine(engine_name)
-        self.model = model
-        self.qa_model = qa_model
+        self.flag_engine = engine_name
+        self.flag_model = model
+        self.flag_qa_model = qa_model
+        self.env_engine = os.environ.get("FACTORY_ENGINE")
+        self.env_model = os.environ.get("FACTORY_MODEL")
+        self.env_qa_model = os.environ.get("FACTORY_QA_MODEL")
+        cfg = factory.load_config().get("factory", {})
+        self.cfg_engine = cfg.get("engine")
+        self.cfg_model = cfg.get("model")
+        self.cfg_qa_model = cfg.get("qa-model")
+        self.engine_name = (self.flag_engine or self.env_engine
+                            or self.cfg_engine or "pi")
+        self.engine = factory.engine(self.engine_name)
+        self.model = self.flag_model or self.env_model or self.cfg_model
+        self.qa_model = (self.flag_qa_model or self.env_qa_model
+                         or self.cfg_qa_model)
         self.orders = fl["orders"]
         self.dry_run = dry_run
         self.update = not dry_run
@@ -119,7 +132,7 @@ class NightRun:
                     print(line)
             return
 
-        print(f"night shift queue (engine: {self.engine_name}):")
+        print("night shift queue:")
         for order, repo in healthy:
             print(f"  {order.rel}  ->  {repo.display()}")
         for order, trouble in problems:
@@ -177,25 +190,27 @@ class NightRun:
                       f"isolated from the night (it runs in a worktree)")
             base = repo.base_ref()
             repo_env = repo.env()
+            engine_name, model, qa_model = self._harness_for(order, repo)
+            engine = factory.engine(engine_name)
             with factory.Worktree(repo, self._wpath(repo, order.id),
                                   order.branch, base) as wt:
                 prompt = (f"Execute work order {order.id} now, following the "
                           f"night-shift manual in your system prompt.\n\n"
                           f"# Work order {order.id}\n\n{order.path.read_text()}")
-                model = order.model or self.model or None
-                ref = self.sessions.ref(f"{self.engine_name}:{order.id}")
-                argv, new_ref, stdin_text = self.engine.build_command(
+                ref = self.sessions.ref(f"{engine_name}:{order.id}")
+                argv, new_ref, stdin_text = engine.build_command(
                     self.system_prompt, prompt, f"wo-{order.id}", ref,
                     json_audit=self.json_audit, model=model)
 
                 rc, raw_events, run_err = self._agent_pass(argv, wt.path,
                                                            stdin_text,
-                                                           env_extra=repo_env)
+                                                           env_extra=repo_env,
+                                                           engine=engine)
                 # hosts that pick their own session id (opencode) surface it here
-                new_ref = new_ref or self.engine.ref_from_output(raw_events)
+                new_ref = new_ref or engine.ref_from_output(raw_events)
                 if new_ref:
-                    self.sessions.set_ref(f"{self.engine_name}:{order.id}", new_ref)
-                report = (self.engine.extract_report(raw_events)
+                    self.sessions.set_ref(f"{engine_name}:{order.id}", new_ref)
+                report = (engine.extract_report(raw_events)
                           if self.json_audit else raw_events)
                 secs = int(time.monotonic() - started)
 
@@ -208,7 +223,9 @@ class NightRun:
                 if rc == 0 and not no_commits and self.qa_enabled:
                     qa_rc, qa_raw, qa_report, qa_moved = self._qa_pass(
                         order, wt.path, branch=order.branch, base=base,
-                        model=model, timeout_secs=max(1, remaining))
+                        model=model, qa_model=qa_model, engine=engine,
+                        engine_name=engine_name,
+                        timeout_secs=max(1, remaining))
 
             return self._bookkeep(order, repo,
                                   new_status="review" if rc == 0 and not no_commits
@@ -217,12 +234,13 @@ class NightRun:
                                   raw_events=raw_events, qa_rc=qa_rc,
                                   qa_raw=qa_raw, qa_report=qa_report,
                                   qa_moved=qa_moved, no_commits=no_commits,
-                                  model=model)
+                                  model=model, engine_name=engine_name)
 
     def _agent_pass(self, argv: list[str], cwd: Path,
                     stdin_text: str | None = None,
                     timeout_secs: int | None = None,
-                    env_extra: dict[str, str] | None = None
+                    env_extra: dict[str, str] | None = None,
+                    engine: factory.Engine | None = None
                     ) -> tuple[int, str, str]:
         """One headless engine pass. Output is captured outside any working
         tree: anything written there could be swept onto a branch and vanish
@@ -233,7 +251,7 @@ class NightRun:
             rc = factory.run_under_timeout(
                 argv, cwd, timeout_secs or self.timeout_secs, out_path,
                 err_path, input_text=stdin_text, env_extra=env_extra,
-                not_found_hint=f"(set {self.engine.name.upper()}_BIN)")
+                not_found_hint=f"(set {(engine or self.engine).name.upper()}_BIN)")
             return rc, out_path.read_text(), err_path.read_text()
 
     def _sweep(self, order_id: str, branch: str, wt_path: Path,
@@ -249,6 +267,8 @@ class NightRun:
 
     def _qa_pass(self, order: factory.WorkOrder, wt_path: Path,
                  branch: str, base: str, model: str | None = None,
+                 qa_model: str | None = None, engine=None,
+                 engine_name: str | None = None,
                  timeout_secs: int | None = None,
                  env_extra: dict[str, str] | None = None
                  ) -> tuple[int, str, str, bool]:
@@ -259,9 +279,10 @@ class NightRun:
                   f"implemented it on branch {branch}, checked out here. "
                   f"Review it against {base}. Follow the QA manual.\n\n"
                   f"# Work order {order.id}\n\n{order.path.read_text()}")
-        ref = self.sessions.ref(f"{self.engine_name}:qa:{order.id}")
-        qa_model = self.qa_model or model
-        argv, new_ref, stdin_text = self.engine.build_command(
+        ref = self.sessions.ref(f"{engine_name or self.engine_name}:qa:{order.id}")
+        qa_model = qa_model or self.qa_model or model
+        qa_engine = engine or self.engine
+        argv, new_ref, stdin_text = qa_engine.build_command(
             self.qa_system_prompt, prompt, f"qa-{order.id}", ref,
             json_audit=self.json_audit, model=qa_model)
         print(f"QA pre-shift reviewing wo-{order.id} ...")
@@ -305,7 +326,9 @@ class NightRun:
                   new_status: str, report: str, run_err: str, rc: int,
                   secs: int, raw_events: str, qa_rc: int | None,
                   qa_raw: str, qa_report: str, qa_moved: bool = False,
-                  no_commits: bool = False, model: str | None = None) -> str:
+                  no_commits: bool = False, model: str | None = None,
+                  engine_name: str | None = None) -> str:
+        ename = engine_name or self.engine_name
         outfile = self.logs / f"{self.today}-wo-{order.id}.out.md"
         errfile = self.logs / f"{self.today}-wo-{order.id}.err.log"
         outfile.write_text(report)
@@ -319,7 +342,7 @@ class NightRun:
 
         model_note = f", model {model}" if model else ""
         order.append(f"\n### {datetime.now():%Y-%m-%d %H:%M} — night run "
-                     f"(engine {self.engine_name}{model_note}, "
+                     f"(engine {ename}{model_note}, "
                      f"target {repo.display()}), exit {rc} ({secs}s)\n\n")
         order.append(report)
         if no_commits:
@@ -332,7 +355,7 @@ class NightRun:
             order.append(note + "\n")
         if qa_rc is not None:
             order.append(f"\n---\n\n### QA pre-shift "
-                         f"(engine {self.engine_name}, exit {qa_rc})\n\n")
+                         f"(engine {ename}, exit {qa_rc})\n\n")
             order.append(qa_report or "(empty QA report)")
         if qa_moved:
             order.append("\n> the QA pass modified the branch. The runner "
@@ -344,7 +367,7 @@ class NightRun:
         with self.run_log.open("a") as f:
             f.write(f"\n## {datetime.now():%H:%M} run\n")
             f.write(f"- wo-{order.id} ({order.rel}) -> {repo.display()}: "
-                    f"{new_status}, engine {self.engine_name}{model_note}, "
+                    f"{new_status}, engine {ename}{model_note}, "
                     f"exit {rc}{qa_note}, "
                     f"{secs}s — report in order file; "
                     f"raw: {outfile.name}\n")
@@ -384,21 +407,30 @@ class NightRun:
     def _wpath(self, repo: factory.TargetRepo, order_id: str) -> Path:
         return self.worktrees / repo.slug() / f"wo-{order_id}"
 
+    def _harness_for(self, order: factory.WorkOrder,
+                     repo: factory.TargetRepo) -> tuple[str, str | None, str | None]:
+        """Per-order harness. Precedence: the order frontmatter, then
+        explicit flags, then the environment, then the repo binding, then
+        the [factory] section, then pi."""
+        engine_name = (order.engine or self.flag_engine or self.env_engine
+                       or repo.engine or self.cfg_engine or "pi")
+        model = (order.model or self.flag_model or self.env_model
+                 or repo.model or self.cfg_model or None)
+        qa_model = (order.qa_model or self.flag_qa_model or self.env_qa_model
+                    or repo.qa_model or self.cfg_qa_model or model)
+        return engine_name, model, qa_model
+
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Execute approved work orders (night shift).")
-    cfg = factory.load_config().get("factory", {})
-    ap.add_argument("--engine", default=os.environ.get("FACTORY_ENGINE")
-                    or cfg.get("engine") or "pi",
+    ap.add_argument("--engine", default=None,
                     help="host agent: pi, claude, opencode, codex or any configured harness. "
                          "env FACTORY_ENGINE, or config [factory] engine")
-    ap.add_argument("--model", default=os.environ.get("FACTORY_MODEL")
-                    or cfg.get("model") or None,
+    ap.add_argument("--model", default=None,
                     help="model string for the engine, passed verbatim "
                          "(host-specific syntax). env FACTORY_MODEL, or "
                          "config [factory] model")
-    ap.add_argument("--qa-model", default=os.environ.get("FACTORY_QA_MODEL")
-                    or cfg.get("qa-model") or None,
+    ap.add_argument("--qa-model", default=None,
                     help="model for the QA pass. Falls back to the order "
                          "model. env FACTORY_QA_MODEL, or config "
                          "[factory] qa-model")

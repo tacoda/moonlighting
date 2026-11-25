@@ -50,6 +50,10 @@ def main() -> None:
                     help="markdown text appended to the order body")
     ap.add_argument("--body-file", default=None, dest="body_file",
                     help="read body content from this file ('-' reads stdin)")
+    ap.add_argument("--engine", default=None,
+                    help="harness for this order (beats repo and factory settings)")
+    ap.add_argument("--qa-model", default=None, dest="qa_model",
+                    help="QA model for this order")
     args = ap.parse_args()
     if args.approve and args.draft:
         factory.die("--approve and --draft cannot be combined", 2)
@@ -105,6 +109,10 @@ def main() -> None:
         extra.append(f"repo: {repo}")
     if model:
         extra.append(f"model: {model}")
+    if args.engine:
+        extra.append(f"engine: {args.engine}")
+    if args.qa_model:
+        extra.append(f"qa-model: {args.qa_model}")
     if insert_at is not None:
         lines[insert_at:insert_at] = extra
     text = "\n".join(lines) + "\n"

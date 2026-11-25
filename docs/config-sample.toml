@@ -33,6 +33,10 @@ ssh-key = "~/.ssh/id_work"
 [repo.site]
 path = "~/code/site"
 profile = "personal"
+# Per-repo overrides. The order frontmatter beats these. These beat [factory].
+# engine = "claude"
+# model = ""
+# qa-model = ""
 
 [repo.api]
 path = "~/code/api"

@@ -63,6 +63,9 @@ class FakeRepo:
     def __init__(self, path):
         self.path = Path(path)
         self.profile_name = ""
+        self.engine: str | None = None
+        self.model: str | None = None
+        self.qa_model: str | None = None
 
     def display(self):
         return str(self.path)
@@ -652,7 +655,7 @@ def test_night_process_flips_to_review(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(factory, "git_out", lambda cwd, *a: "2")
     monkeypatch.setattr(nightrun.NightRun, "_agent_pass",
                         lambda self, argv, cwd, stdin_text=None,
-                        timeout_secs=None, env_extra=None:
+                        timeout_secs=None, env_extra=None, engine=None:
                         (0, '{"events": true}', ""))
     monkeypatch.setattr(nightrun.NightRun, "_qa_pass",
                         lambda self, *a, **k: (0, "", "QA ok", False))
@@ -898,6 +901,55 @@ def test_init_no_cron_flag_skips(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["moonlighting", "--no-cron"])
     setup.main()
     assert "cron skipped" in capsys.readouterr().out
+
+
+def test_repo_binding_harness_fields(tmp_path, monkeypatch):
+    target = tmp_path / "t"
+    target.mkdir()
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(f'[repo.demo]\npath = "{target}"\nengine = "claude"\n'
+                   'model = "alias-9"\nqa-model = "haiku"\n')
+    monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
+    monkeypatch.setattr(factory.subprocess, "run", lambda *a, **k: _R(0))
+    repo = factory.TargetRepo.resolve("demo")
+    assert repo.engine == "claude"
+    assert repo.model == "alias-9"
+    assert repo.qa_model == "haiku"
+
+
+def test_harness_precedence(tmp_path):
+    fl = fake_floor()
+    shop = FakeRepo(tmp_path / "shop")
+    shop.engine, shop.model, shop.qa_model = "claude", "alias-9", "haiku"
+    (fl["orders"] / "a1b2c3d-a.md").write_text(
+        GOOD_APPROVED.replace("---\n", "---\nrepo: shop\n", 1))
+    (fl["orders"] / "b2c3d4e-b.md").write_text(
+        ORDER.replace("status: draft", "status: approved")
+             .replace("id: a1b2c3d", "id: b2c3d4e")
+             .replace("---\n", "---\nrepo: shop\nengine: codex\nmodel: gpt-5\nqa-model: mini\n", 1))
+    night = nightrun.NightRun(fl, None, None, 5, True, 60)
+    order_a = factory.WorkOrder(fl["orders"] / "a1b2c3d-a.md")
+    order_b = factory.WorkOrder(fl["orders"] / "b2c3d4e-b.md")
+    assert night._harness_for(order_a, shop) == ("claude", "alias-9", "haiku")
+    assert night._harness_for(order_b, shop) == ("codex", "gpt-5", "mini")
+
+
+def test_flag_engine_beats_repo(tmp_path):
+    fl = fake_floor()
+    shop = FakeRepo(tmp_path / "shop")
+    shop.engine = "claude"
+    order = make_order(tmp_path)
+    night = nightrun.NightRun(fl, "pi", None, 5, True, 60)
+    assert night._harness_for(order, shop)[0] == "pi"
+
+
+def test_new_order_engine_fields():
+    r = run_module("new_order", "Picky", "--draft",
+                   "--engine", "codex", "--qa-model", "mini")
+    assert r.returncode == 0, r.stderr
+    created = list(factory.orders_dir().glob("*-picky.md"))
+    text = created[0].read_text()
+    assert "engine: codex" in text and "qa-model: mini" in text
 
 
 def test_reject_records_reason_and_status():

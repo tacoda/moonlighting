@@ -462,6 +462,14 @@ class WorkOrder:
     def model(self) -> str:
         return self.fields.get("model", "")
 
+    @property
+    def engine(self) -> str:
+        return self.fields.get("engine", "")
+
+    @property
+    def qa_model(self) -> str:
+        return self.fields.get("qa-model", "")
+
     def set_status(self, new_status: str) -> None:
         set_status(self.path, new_status)
         self.fields["status"] = new_status
@@ -507,9 +515,10 @@ class WorkOrder:
         branch = self.fields.get("branch")
         if branch and re.search(r"\s", branch):
             problems.append(f"branch: '{branch}' contains whitespace")
-        model = self.model
-        if model and re.search(r"\s", model):
-            problems.append(f"model: '{model}' contains whitespace")
+        for field in ("model", "engine", "qa-model"):
+            value = self.fields.get(field, "")
+            if value and re.search(r"\s", value):
+                problems.append(f"{field}: '{value}' contains whitespace")
         repo = self.repo_value
         if repo == "self":
             problems.append("repo: 'self' named no target — bind the repo "
@@ -542,9 +551,14 @@ class TargetRepo:
     """A resolved target repository: a config binding name, a local path,
     or a URL clone living under the data directory's repos/."""
 
-    def __init__(self, path: Path, profile_name: str = ""):
+    def __init__(self, path: Path, profile_name: str = "",
+                 engine: str | None = None, model: str | None = None,
+                 qa_model: str | None = None):
         self.path = path
         self.profile_name = profile_name
+        self.engine = engine
+        self.model = model
+        self.qa_model = qa_model
 
     @classmethod
     def resolve(cls, repo_value: str | None,
@@ -598,7 +612,10 @@ class TargetRepo:
                     return None
                 die(f"repo '{repo_value}' points at {bp}, "
                     f"which is not a git repository")
-            return cls(bp, profile_name=binding.get("profile", ""))
+            return cls(bp, profile_name=binding.get("profile", ""),
+                       engine=binding.get("engine") or None,
+                       model=binding.get("model") or None,
+                       qa_model=binding.get("qa-model") or None)
         p = Path(repo_value).expanduser()
         p = p.resolve()
         if subprocess.run(["git", "-C", str(p), "rev-parse", "--git-dir"],
