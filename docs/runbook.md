@@ -114,6 +114,8 @@
 ## Night-branch base policy
 
 Night branches start from the target's **local main, fast-forwarded to the
-remote default when possible**. Consequence: after accepting an order, push
+remote default when possible**. The fast-forward runs only when the target
+has main checked out, so any other checkout stays untouched. Consequence:
+after accepting an order, push
 the target repo (or at least approve the next order only after the previous
 landing is integrated) — the night wants your freshest main.

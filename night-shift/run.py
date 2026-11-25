@@ -36,10 +36,14 @@ class NightRun:
         os.chdir(root)
         self.engine_name = engine_name
         self.engine = factory.engine(engine_name)
-        self.repo_filter = (factory.TargetRepo.resolve(root, repo_filter)
-                            if repo_filter else None)
-        self.max_orders = max_orders
         self.dry_run = dry_run
+        self.update = not dry_run
+        self.repo_filter = (factory.TargetRepo.resolve(root, repo_filter,
+                                                       update=self.update)
+                            if repo_filter else None)
+        if repo_filter and self.repo_filter is None:
+            factory.die(f"cannot resolve --repo: {repo_filter}")
+        self.max_orders = max_orders
         self.timeout_secs = timeout_secs
 
         self.logs = root / "night-shift" / "logs"
@@ -71,7 +75,7 @@ class NightRun:
                 queue.append((order, None, problems))
                 continue
             repo = factory.TargetRepo.resolve(self.root, order.repo_value,
-                                              soft=True)
+                                              update=self.update, soft=True)
             if repo is None:
                 # soft resolve. The clone failed or the path is not a git
                 # repo. Block this order instead of aborting the night.

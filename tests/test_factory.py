@@ -6,6 +6,7 @@ Run with: uv run pytest
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -251,12 +252,20 @@ def test_lock_breaks_stale_lock(tmp_path):
         assert lock.path.read_text().splitlines()[0] == str(os.getpid())
 
 
-def test_lock_empty_file_is_fatal_today(tmp_path):
-    # Current behavior: the runner can never break an empty lock. Flip
-    # this test when it learns to treat empty locks as stale.
+def test_lock_empty_and_fresh_is_fatal(tmp_path):
+    # An empty lock younger than the grace window still stops the run.
     (tmp_path / "k.lock").write_text("")
     with pytest.raises(factory.FactoryError), factory.Lock(tmp_path, "k", "repo x"):
             pass
+
+
+def test_lock_empty_and_old_is_broken(tmp_path):
+    path = tmp_path / "k.lock"
+    path.write_text("")
+    old = time.time() - 60
+    os.utime(path, (old, old))
+    with factory.Lock(tmp_path, "k", "repo x") as lock:
+        assert lock.path.read_text().splitlines()[0] == str(os.getpid())
 
 
 # ------------------------------------------------------------ sessions
@@ -300,3 +309,48 @@ def test_is_repo_url():
 
 def test_repo_slug():
     assert factory.repo_slug(Path("/a b/c")) == "_a_b_c"
+
+
+# ------------------------------------------------------- audit fixes
+
+
+def test_resolve_expands_tilde(tmp_path, monkeypatch):
+    real = tmp_path / "realrepo"
+    subprocess.run(["git", "init", "-q", str(real)], check=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = factory.TargetRepo.resolve(tmp_path, "~/realrepo", update=False)
+    assert repo is not None
+    assert repo.path == (tmp_path / "realrepo").resolve()
+
+
+def make_git_repo(path, branch="main"):
+    subprocess.run(["git", "init", "-q", "-b", branch, str(path)], check=True)
+    subprocess.run(["git", "-C", str(path), "commit", "-q", "--allow-empty",
+                    "-m", "init"], check=True)
+    return path
+
+
+def test_base_ref_guard_leaves_other_checkouts(tmp_path):
+    repo_path = make_git_repo(tmp_path / "r")
+    subprocess.run(["git", "-C", str(repo_path), "checkout", "-q", "-b",
+                    "feature"], check=True)
+    repo = factory.TargetRepo(repo_path)
+    assert repo.base_ref() == "main"
+    current = factory.git_out(repo_path, "branch", "--show-current")
+    assert current == "feature"
+
+
+def test_base_ref_on_main_without_origin(tmp_path):
+    repo = factory.TargetRepo(make_git_repo(tmp_path / "r"))
+    assert repo.base_ref() == "main"
+
+
+def test_git_failure_raises_factory_error(tmp_path):
+    with pytest.raises(factory.FactoryError) as excinfo:
+        factory.git(tmp_path, "rev-parse", "--show-toplevel")
+    assert "git rev-parse --show-toplevel failed" in str(excinfo.value)
+
+
+def test_git_check_false_stays_quiet(tmp_path):
+    r = factory.git(tmp_path, "rev-parse", "--show-toplevel", check=False)
+    assert r.returncode != 0

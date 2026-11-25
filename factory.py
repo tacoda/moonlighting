@@ -19,6 +19,7 @@ import json
 import os
 import re
 import subprocess
+import time
 import uuid
 from datetime import date
 from pathlib import Path
@@ -52,9 +53,11 @@ def repo_root() -> Path:
 
 
 def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", *args], cwd=cwd, text=True, capture_output=True, check=check
-    )
+    r = subprocess.run(["git", *args], cwd=cwd, text=True,
+                       capture_output=True, check=False)
+    if check and r.returncode != 0:
+        die(f"git {' '.join(args)} failed: {(r.stderr or r.stdout).strip()}")
+    return r
 
 
 def git_out(cwd: Path, *args: str) -> str:
@@ -397,7 +400,7 @@ class TargetRepo:
                     return None
                 die(f"clone failed: {r.stderr.strip()}")
             return cls(target, root)
-        p = Path(repo_value)
+        p = Path(repo_value).expanduser()
         if not p.is_absolute():
             p = root / p
         p = p.resolve()
@@ -435,8 +438,11 @@ class TargetRepo:
     def base_ref(self) -> str:
         """Night branches start from local main, fast-forwarded to the remote
         default when possible: accepted-but-unpushed work makes local main the
-        freshest truth, and ff-only never rewrites anything."""
+        freshest truth, and ff-only never rewrites anything. The ff updates
+        the working tree, so it runs only when main is checked out."""
         main = self.local_main()
+        if self.current_branch() != main:
+            return main
         r = git(self.path, "symbolic-ref", "--quiet", "--short",
                 "refs/remotes/origin/HEAD", check=False)
         if r.returncode == 0 and r.stdout.strip():
@@ -509,7 +515,16 @@ class Lock:
                 fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             except FileExistsError:
                 first = self.path.read_text().split("\n")[0].strip()
-                if first.isdigit() and not pid_alive(int(first)):
+                if not first:
+                    # No pid recorded yet. An empty lock turns stale after a
+                    # grace window. The window protects a runner caught
+                    # between file create and pid write.
+                    if time.time() - self.path.stat().st_mtime > 5:
+                        print(f"breaking stale lock: {self.path.name} "
+                              f"(no pid recorded)")
+                        self.path.unlink()
+                        continue
+                elif first.isdigit() and not pid_alive(int(first)):
                     print(f"breaking stale lock: {self.path.name} "
                           f"(pid {first} is gone)")
                     self.path.unlink()
