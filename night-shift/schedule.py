@@ -55,6 +55,9 @@ def main() -> None:
     inst.add_argument("--engine", default=os.environ.get("FACTORY_ENGINE", "pi"),
                       help="host agent: pi, claude or opencode (default pi). "
                            "env FACTORY_ENGINE")
+    inst.add_argument("--model", default=os.environ.get("FACTORY_MODEL"),
+                      help="model string for the engine, passed verbatim "
+                           "(host-specific syntax). env FACTORY_MODEL")
     sub.add_parser("remove", help="remove the nightly entry")
     sub.add_parser("status", help="show the nightly entry, if any")
     args = ap.parse_args()
@@ -86,9 +89,11 @@ def main() -> None:
     bin_val = os.environ.get(bin_var) or shutil.which(engine)
     if not bin_val:
         factory.die(f"{engine} not found on PATH (set {bin_var})")
+    model_part = f" --model '{args.model}'" if args.model else ""
     entry = (f"{minute} {hour} * * * cd '{root}' "
              f"&& {bin_var}='{os.path.abspath(bin_val)}' "
-             f"{sys.executable} night-shift/run.py --engine {engine} "
+             f"{sys.executable} night-shift/run.py --engine {engine}"
+             f"{model_part} "
              f"--max-orders {args.max_orders} "
              f">> night-shift/logs/cron.log 2>&1 {TAG}")
 

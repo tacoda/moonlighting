@@ -38,6 +38,9 @@
   (`repo: ~/repos/shop`) or a git URL (`repo: https://github.com/acme/api.git`,
   cloned under `repos/` and refreshed each night). Omit it to target this
   factory itself.
+- Pick the model per order with a `model:` frontmatter field. The string
+  passes verbatim to the selected engine (syntax per host: see the README
+  engines table). Leave it out for the host default.
 - An order should be decidable in one morning. Big unknown? Order prototypes
   or variants and decide among them in the morning — the night produces
   options, the day produces answers.
@@ -61,7 +64,8 @@
        python3 night-shift/run.py --repo git@github.com:acme/api.git --engine claude
 
    `--repo` takes a path or URL and only runs that repo's orders; the default
-   works this factory's own queue. Pick the host with `--engine pi|claude|opencode`.
+   works this factory's own queue. Pick the host with `--engine
+   pi|claude|opencode` and the model with `--model` (host-specific syntax).
 4. `--max-orders N` for a longer night; an order that runs past
    `NIGHT_TIMEOUT_SECS` (default 7200s) is killed and marked blocked.
 5. Locks: a second process on the same repo or the same factory checkout

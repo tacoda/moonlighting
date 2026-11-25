@@ -158,12 +158,15 @@ class Engine:
     def build_command(
         self, system_prompt: str, prompt: str, session_id: str,
         session_ref: str | None, json_audit: bool = True,
+        model: str | None = None,
     ) -> tuple[list[str], str | None, str | None]:
         """Headless argv for one pass. session_id is the engine-side session
         handle; session_ref resumes a known session (claude). json_audit
         switches the raw event capture on. The prompt rides on stdin, never
         on argv: order files grow every cycle, and Linux caps one argv item
-        at 128 KiB. Returns (argv, ref_to_remember, stdin_text)."""
+        at 128 KiB. model passes a host-specific model string verbatim;
+        None keeps the host default. Returns (argv, ref_to_remember,
+        stdin_text)."""
         raise NotImplementedError
 
     def extract_report(self, raw: str) -> str:
@@ -181,12 +184,14 @@ class PiEngine(Engine):
     default_binary = "pi"
 
     def build_command(self, system_prompt, prompt, session_id,
-                      session_ref, json_audit=True):
+                      session_ref, json_audit=True, model=None):
         argv = [self.binary, "--print", "--approve",
                 "--append-system-prompt", system_prompt,
                 "--session-id", session_id]
         if json_audit:
             argv += ["--mode", "json"]
+        if model:
+            argv += ["--model", model]
         return argv, None, prompt
 
     def extract_report(self, raw: str) -> str:
@@ -220,7 +225,7 @@ class ClaudeEngine(Engine):
     default_binary = "claude"
 
     def build_command(self, system_prompt, prompt, session_id,
-                      session_ref, json_audit=True):
+                      session_ref, json_audit=True, model=None):
         argv = [self.binary, "--print", "--dangerously-skip-permissions",
                 "--append-system-prompt", system_prompt]
         if json_audit:
@@ -230,6 +235,8 @@ class ClaudeEngine(Engine):
         else:
             session_ref = str(uuid.uuid4())
             argv += ["--session-id", session_ref]
+        if model:
+            argv += ["--model", model]
         return argv, session_ref, prompt
 
     def extract_report(self, raw: str) -> str:
@@ -247,12 +254,14 @@ class OpenCodeEngine(Engine):
     default_binary = "opencode"
 
     def build_command(self, system_prompt, prompt, session_id,
-                      session_ref, json_audit=True):
+                      session_ref, json_audit=True, model=None):
         argv = [self.binary, "run", "--auto", "--archived"]
         if json_audit:
             argv += ["--format", "json"]
         if session_ref:
             argv += ["--session", session_ref]
+        if model:
+            argv += ["--model", model]
         # opencode has no --append-system-prompt: the manual rides in the message
         return argv, None, f"{system_prompt}\n\n---\n\n{prompt}"
 
@@ -335,6 +344,10 @@ class WorkOrder:
     def repo_value(self) -> str:
         return self.fields.get("repo", "")
 
+    @property
+    def model(self) -> str:
+        return self.fields.get("model", "")
+
     def set_status(self, new_status: str) -> None:
         set_status(self.path, new_status)
         self.fields["status"] = new_status
@@ -376,6 +389,9 @@ class WorkOrder:
         branch = self.fields.get("branch")
         if branch and re.search(r"\s", branch):
             problems.append(f"branch: '{branch}' contains whitespace")
+        model = self.model
+        if model and re.search(r"\s", model):
+            problems.append(f"model: '{model}' contains whitespace")
         repo = self.repo_value
         if (repo and repo != "self" and not is_repo_url(repo)
                 and TargetRepo.resolve(self.root, repo, update=False,

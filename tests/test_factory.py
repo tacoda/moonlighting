@@ -146,12 +146,13 @@ def test_engine_unknown():
 
 def test_pi_command():
     argv, ref, stdin_text = factory.engine("pi").build_command(
-        SYSTEM, PROMPT, "wo-001", None)
+        SYSTEM, PROMPT, "wo-001", None, model="x/y:high")
     assert argv[0] == "pi"
     assert "--print" in argv
     assert "--approve" in argv
     assert "--mode" in argv and "json" in argv
     assert "--session-id" in argv and "wo-001" in argv
+    assert "--model" in argv and "x/y:high" in argv
     assert PROMPT not in argv
     assert stdin_text == PROMPT
     assert ref is None
@@ -161,15 +162,17 @@ def test_pi_command_no_audit():
     argv, _, stdin_text = factory.engine("pi").build_command(
         SYSTEM, PROMPT, "wo-001", None, json_audit=False)
     assert "--mode" not in argv
+    assert "--model" not in argv
     assert stdin_text == PROMPT
 
 
 def test_claude_command_new_session():
     argv, ref, stdin_text = factory.engine("claude").build_command(
-        SYSTEM, PROMPT, "x", None)
+        SYSTEM, PROMPT, "x", None, model="alias-1")
     assert "--resume" not in argv
     index = argv.index("--session-id")
     assert argv[index + 1] == ref
+    assert "--model" in argv and "alias-1" in argv
     assert PROMPT not in argv
     assert stdin_text == PROMPT
 
@@ -179,14 +182,16 @@ def test_claude_command_resume():
         SYSTEM, PROMPT, "x", "uuid-1")
     assert "--resume" in argv and "uuid-1" in argv
     assert ref == "uuid-1"
+    assert "--model" not in argv
     assert stdin_text == PROMPT
 
 
 def test_opencode_command_new_session():
     argv, ref, stdin_text = factory.engine("opencode").build_command(
-        SYSTEM, PROMPT, "x", None)
+        SYSTEM, PROMPT, "x", None, model="a/b#c")
     assert argv[:4] == ["opencode", "run", "--auto", "--archived"]
     assert "--session" not in argv
+    assert "--model" in argv and "a/b#c" in argv
     assert PROMPT not in argv
     assert stdin_text == f"{SYSTEM}\n\n---\n\n{PROMPT}"
     assert ref is None
@@ -196,6 +201,7 @@ def test_opencode_command_resume():
     argv, _, stdin_text = factory.engine("opencode").build_command(
         SYSTEM, PROMPT, "x", "ses_abc")
     assert argv[argv.index("--session") + 1] == "ses_abc"
+    assert "--model" not in argv
     assert stdin_text == f"{SYSTEM}\n\n---\n\n{PROMPT}"
 
 
@@ -533,3 +539,16 @@ def test_preflight_failure_lands_in_errors_log(tmp_path):
     assert r.returncode == 1
     log = floor / "night-shift" / "logs" / "errors.log"
     assert "no work-orders" in log.read_text()
+
+
+def test_workorder_model_field(tmp_path):
+    text = ORDER.replace("---\n", "---\nmodel: anthropic/claude-opus-5\n", 1)
+    order = make_order(tmp_path, text)
+    assert order.model == "anthropic/claude-opus-5"
+    assert make_order(tmp_path).model == ""
+
+
+def test_lint_rejects_model_with_whitespace(tmp_path):
+    text = ORDER.replace("---\n", "---\nmodel: claude opus\n", 1)
+    problems = make_order(tmp_path, text).lint()
+    assert any("model" in p for p in problems)

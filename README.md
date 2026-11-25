@@ -75,15 +75,20 @@ AGENTS.md               standing instructions for any agent in this repo
 
 Three hosts run the same work orders through the same flow:
 
-| engine | headless invocation | sessions |
-| --- | --- | --- |
-| pi (default) | `pi --print` | deterministic: `wo-NNN` |
-| claude | `claude -p` | uuid per order, kept in `night-shift/sessions.json` |
-| opencode | `opencode run` | host picks the id (`ses_...`), kept in `night-shift/sessions.json` |
+| engine | headless invocation | sessions | model syntax |
+| --- | --- | --- | --- |
+| pi (default) | `pi --print` | deterministic: `wo-NNN` | `provider/id`, optional `:thinking` |
+| claude | `claude -p` | uuid per order, kept in `night-shift/sessions.json` | alias or full model id |
+| opencode | `opencode run` | host picks the id (`ses_...`), kept in `night-shift/sessions.json` | `provider/model#variant` |
 
 Pick per run with `--engine` (or `FACTORY_ENGINE`). All three run under the
 nWave tool-call guard (`nwave-ai mode all`). Agent commits carry nWave
 attribution.
+
+Set the model in three places, most specific first: a `model:` field,
+`--model` (or `FACTORY_MODEL`), or the host default. The string passes
+verbatim to the selected engine. Write it in that engine's syntax from the
+table. Each run header records the model that ran.
 
 Every run is double-checked by default:
 

@@ -31,11 +31,13 @@ class NightRun:
     bookkeep in the factory repo."""
 
     def __init__(self, root: Path, engine_name: str, repo_filter: str | None,
-                 max_orders: int, dry_run: bool, timeout_secs: int):
+                 max_orders: int, dry_run: bool, timeout_secs: int,
+                 model: str | None = None):
         self.root = root
         os.chdir(root)
         self.engine_name = engine_name
         self.engine = factory.engine(engine_name)
+        self.model = model
         self.dry_run = dry_run
         self.update = not dry_run
         self.repo_filter = (factory.TargetRepo.resolve(root, repo_filter,
@@ -179,10 +181,11 @@ class NightRun:
                 prompt = (f"Execute work order {order.id} now, following the "
                           f"night-shift manual in your system prompt.\n\n"
                           f"# Work order {order.id}\n\n{order.path.read_text()}")
+                model = order.model or self.model or None
                 ref = self.sessions.ref(f"{self.engine_name}:{order.id}")
                 argv, new_ref, stdin_text = self.engine.build_command(
                     self.system_prompt, prompt, f"wo-{order.id}", ref,
-                    json_audit=self.json_audit)
+                    json_audit=self.json_audit, model=model)
 
                 rc, raw_events, run_err = self._agent_pass(argv, wt.path,
                                                            stdin_text)
@@ -201,7 +204,8 @@ class NightRun:
 
                 if rc == 0 and not no_commits and self.qa_enabled:
                     qa_rc, qa_raw, qa_report, qa_moved = self._qa_pass(
-                        order, wt.path, branch=order.branch, base=base)
+                        order, wt.path, branch=order.branch, base=base,
+                        model=model)
 
             return self._bookkeep(order, repo,
                                   new_status="review" if rc == 0 and not no_commits
@@ -209,7 +213,8 @@ class NightRun:
                                   run_err=run_err, rc=rc, secs=secs,
                                   raw_events=raw_events, qa_rc=qa_rc,
                                   qa_raw=qa_raw, qa_report=qa_report,
-                                  qa_moved=qa_moved, no_commits=no_commits)
+                                  qa_moved=qa_moved, no_commits=no_commits,
+                                  model=model)
 
     def _agent_pass(self, argv: list[str], cwd: Path,
                     stdin_text: str | None = None) -> tuple[int, str, str]:
@@ -234,7 +239,8 @@ class NightRun:
             print(f"note: uncommitted work was auto-committed to {branch}")
 
     def _qa_pass(self, order: factory.WorkOrder, wt_path: Path,
-                 branch: str, base: str) -> tuple[int, str, str, bool]:
+                 branch: str, base: str,
+                 model: str | None = None) -> tuple[int, str, str, bool]:
         """Advisory second pass: verify, don't trust. The QA manual says
         read-only. The tip guard keeps the branch intact even when the QA
         model misbehaves. Returns (rc, raw, report, tip_moved)."""
@@ -245,7 +251,7 @@ class NightRun:
         ref = self.sessions.ref(f"{self.engine_name}:qa:{order.id}")
         argv, new_ref, stdin_text = self.engine.build_command(
             self.qa_system_prompt, prompt, f"qa-{order.id}", ref,
-            json_audit=self.json_audit)
+            json_audit=self.json_audit, model=model)
         print(f"QA pre-shift reviewing wo-{order.id} ...")
         tip_before = factory.git_out(wt_path, "rev-parse", "HEAD")
         rc, raw, _ = self._agent_pass(argv, wt_path, stdin_text)
@@ -285,7 +291,7 @@ class NightRun:
                   new_status: str, report: str, run_err: str, rc: int,
                   secs: int, raw_events: str, qa_rc: int | None,
                   qa_raw: str, qa_report: str, qa_moved: bool = False,
-                  no_commits: bool = False) -> str:
+                  no_commits: bool = False, model: str | None = None) -> str:
         outfile = self.logs / f"{self.today}-wo-{order.id}.out.md"
         errfile = self.logs / f"{self.today}-wo-{order.id}.err.log"
         outfile.write_text(report)
@@ -297,9 +303,10 @@ class NightRun:
         if qa_raw:
             (self.logs / f"{self.today}-wo-{order.id}.qa.jsonl").write_text(qa_raw)
 
+        model_note = f", model {model}" if model else ""
         order.append(f"\n### {datetime.now():%Y-%m-%d %H:%M} — night run "
-                     f"(engine {self.engine_name}, target {repo.display()}), "
-                     f"exit {rc} ({secs}s)\n\n")
+                     f"(engine {self.engine_name}{model_note}, "
+                     f"target {repo.display()}), exit {rc} ({secs}s)\n\n")
         order.append(report)
         if no_commits:
             order.append("\n> the agent left no commits on the branch — "
@@ -323,7 +330,8 @@ class NightRun:
         with self.run_log.open("a") as f:
             f.write(f"\n## {datetime.now():%H:%M} run\n")
             f.write(f"- wo-{order.id} ({order.rel}) -> {repo.display()}: "
-                    f"{new_status}, engine {self.engine_name}, exit {rc}{qa_note}, "
+                    f"{new_status}, engine {self.engine_name}{model_note}, "
+                    f"exit {rc}{qa_note}, "
                     f"{secs}s — report in order file; "
                     f"raw: {outfile.relative_to(self.root)}\n")
 
@@ -350,6 +358,9 @@ def main() -> None:
     ap.add_argument("--engine", default=os.environ.get("FACTORY_ENGINE", "pi"),
                     help="host agent: pi, claude or opencode (default pi). "
                          "env FACTORY_ENGINE")
+    ap.add_argument("--model", default=os.environ.get("FACTORY_MODEL"),
+                    help="model string for the engine, passed verbatim "
+                         "(host-specific syntax). env FACTORY_MODEL")
     ap.add_argument("--repo", default=None, metavar="REPO",
                     help="only process orders for this repo (path or git URL)")
     ap.add_argument("--max-orders", type=int, default=1,
@@ -370,7 +381,7 @@ def main() -> None:
     locks = root / "night-shift" / "locks"
     with factory.Lock(locks, "factory", f"factory checkout {root}"):
         NightRun(root, args.engine, args.repo, args.max_orders,
-                 args.dry_run, timeout_secs).run()
+                 args.dry_run, timeout_secs, args.model).run()
 
 
 if __name__ == "__main__":

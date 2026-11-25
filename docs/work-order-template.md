@@ -38,8 +38,15 @@ Runnable checks the agent can verify itself before reporting done —
 Frontmatter fields:
   id      zero-padded, 3 digits (001, 002, ...)
   status  draft | approved | review | blocked | done | rejected
-  branch  optional; defaults to wo/<id>
-  repo    optional; default: this factory. A path or a git URL —
+  created YYYY-MM-DD
+-->
+
+<!--
+  branch  optional, defaults to wo/<id>
+  repo    optional, default is this factory. A path or a git URL.
           URLs are cloned under repos/ and refreshed each night.
+  model   optional, passed verbatim to the selected engine (syntax
+          differs per host, see the README engines table). Leave it
+          out for the host default.
 -->
 
