@@ -24,10 +24,22 @@ app = typer.Typer(
     add_completion=False,
 )
 
-WORKFLOWS = (
-    "accept", "answer", "approve", "feedback", "lint-orders",
-    "new-order", "night", "remove", "rotate-logs", "schedule", "status",
-)
+WORKFLOWS: dict[str, tuple[str, str]] = {
+    # command name: (module, help line)
+    "accept": ("accept", "Squash-merge a review order into its target repo."),
+    "answer": ("answer", "Reply to a blocked order; it re-runs tonight."),
+    "approve": ("approve", "Approve a draft order for the next night."),
+    "feedback": ("feedback", "Send a review order back to blocked with notes."),
+    "init": ("setup", "Set up the nWave guard, config file and data dirs."),
+    "lint-orders": ("lint_orders",
+                    "Check every order file against the template rules."),
+    "new-order": ("new_order", "Create a work order interactively."),
+    "night": ("run", "Run every approved order through the nWave guard."),
+    "remove": ("remove", "Delete an order file; asks first unless --yes."),
+    "rotate-logs": ("rotate_logs", "Compress and prune old night logs."),
+    "schedule": ("schedule", "Install, remove or show the nightly cron entry."),
+    "status": ("status", "Show the floor: orders, running locks, hints."),
+}
 
 err = Console(stderr=True, style="red")
 
@@ -57,18 +69,19 @@ def main(
         print(ctx.get_help())
 
 
-def _register(workflow: str) -> None:
-    module = workflow.replace("-", "_")
+def _register(name: str) -> None:
+    module, help_text = WORKFLOWS[name]
 
-    @app.command(workflow, context_settings={
+    @app.command(name, help=help_text, context_settings={
         "allow_extra_args": True, "ignore_unknown_options": True,
     })
-    def dispatch(ctx: typer.Context, module: str = module) -> None:
+    def dispatch(ctx: typer.Context,
+                 module: str = typer.Option(module, hidden=True)) -> None:
         run_workflow(module, ctx)
 
 
-for _workflow in WORKFLOWS:
-    _register(_workflow)
+for _name in WORKFLOWS:
+    _register(_name)
 
 
 if __name__ == "__main__":
