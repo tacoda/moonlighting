@@ -2,11 +2,27 @@
 name = "moonlighting-factory"
 version = "0.1.0"
 description = "A software factory: people decide by day, agents type by night."
+readme = "README.md"
 requires-python = ">=3.9"
+authors = [{ name = "tacoda" }]
+keywords = ["ai-agents", "automation", "workflow", "factory", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Build Tools",
+]
 dependencies = []
 
 [project.scripts]
 moonlighting = "moonlighting.cli:main"
+
+[project.urls]
+Repository = "https://github.com/tacoda/moonlighting"
+Issues = "https://github.com/tacoda/moonlighting/issues"
 
 [dependency-groups]
 dev = ["pytest"]
@@ -17,6 +33,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/moonlighting"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["moonlighting"]
