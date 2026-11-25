@@ -92,16 +92,21 @@ AGENTS.md               standing instructions for any agent in this repo
 
 ## Engines
 
-Three hosts run the same work orders through the same flow:
+Every harness runs the same work orders through the same flow:
 
 | engine | headless invocation | sessions | model syntax |
 | --- | --- | --- | --- |
 | pi (default) | `pi --print` | deterministic: `wo-<id>` | `provider/id`, optional `:thinking` |
 | claude | `claude -p` | uuid per order, kept in the data dir's `sessions.json` | alias or full model id |
 | opencode | `opencode run` | host picks the id (`ses_...`), kept in the data dir's `sessions.json` | `provider/model#variant` |
+| codex | `codex exec --json` | fresh context each pass | plain model string |
 
-Pick per run with `--engine` (or `FACTORY_ENGINE`). All three run under the
-nWave tool-call guard (`nwave-ai mode all`). Agent commits carry nWave
+Need another host? Add a `[harness.NAME]` row in the config file. Set
+`binary`, `run`, `system`, `session`, `stdin`, `audit` and `extract`.
+No code changes.
+
+Pick per run with `--engine` (or `FACTORY_ENGINE`). Every harness runs
+under the nWave tool-call guard (`nwave-ai mode all`). Agent commits carry nWave
 attribution.
 
 Set the model in three places, most specific first: a `model:` field,

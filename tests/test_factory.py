@@ -284,6 +284,43 @@ def test_claude_command_resume():
     assert stdin_text == PROMPT
 
 
+def test_codex_command():
+    argv, ref, stdin_text = factory.engine("codex").build_command(
+        SYSTEM, PROMPT, "x", None, model="gpt-5.1-codex")
+    assert argv[0] == "codex"
+    assert "--json" in argv
+    assert "--dangerously-bypass-approvals-and-sandbox" in argv
+    assert "--skip-git-repo-check" in argv
+    assert "--model" in argv and "gpt-5.1-codex" in argv
+    assert ref is None
+    assert stdin_text == f"{SYSTEM}\n\n---\n\n{PROMPT}"
+
+
+def test_codex_extract_jsonl():
+    eng = factory.engine("codex")
+    raw = "\n".join([
+        '{"type":"session_configured"}',
+        '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}',
+        "not json",
+    ])
+    assert eng.extract_report(raw) == "done"
+    assert eng.extract_report("plain") == "plain"
+    assert eng.ref_from_output(raw) is None
+
+
+def test_config_extends_harness(tmp_path, monkeypatch):
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('[harness.crew]\nbinary = "crew-chat"\n'
+                   'run = ["run", "--headless"]\nsystem = "stdin"\n'
+                   'stdin = "system+prompt"\nsession = "none"\n'
+                   'audit = []\nextract = "raw"\n')
+    monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
+    eng = factory.engine("crew")
+    argv, ref, stdin_text = eng.build_command(SYSTEM, PROMPT, "x", None)
+    assert argv[:3] == ["crew-chat", "run", "--headless"]
+    assert stdin_text == f"{SYSTEM}\n\n---\n\n{PROMPT}"
+
+
 def test_opencode_command_new_session():
     argv, ref, stdin_text = factory.engine("opencode").build_command(
         SYSTEM, PROMPT, "x", None, model="a/b#c")

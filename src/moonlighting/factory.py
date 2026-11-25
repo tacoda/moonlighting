@@ -215,15 +215,29 @@ def repo_slug(path: Path) -> str:
 
 
 class Engine:
-    """Adapter for one host agent. Subclasses know how to run headless and
-    how to read the final report back out of a raw JSON capture."""
+    """One host harness, described by a spec row. build_command assembles
+    the headless argv; extractors read the final report back out of a raw
+    capture. Rows live in HARNESS. A config [harness.<name>] row overrides
+    any field, or adds a whole new harness without code."""
 
-    name: str = ""
-    default_binary: str = ""
-
-    def __init__(self, binary: str | None = None):
+    def __init__(self, name: str, binary: str | None = None):
+        spec = dict(HARNESS.get(name, {}))
+        spec.update(load_config().get("harness", {}).get(name, {}) or {})
+        if not spec:
+            die(f"unknown engine: {name}", 2)
+        self.name = name
         self.binary = binary or os.environ.get(
-            f"{self.name.upper()}_BIN", self.default_binary)
+            f"{name.upper()}_BIN", spec.get("binary", name))
+        self.run = list(spec.get("run", []))
+        self.audit = list(spec.get("audit", []))
+        self.system_mode = spec.get("system", "flag")
+        self.system_flag = spec.get("system_flag", "--append-system-prompt")
+        self.stdin_mode = spec.get("stdin", "prompt")
+        self.session_mode = spec.get("session", "none")
+        self.session_flag = spec.get("session_flag", "--session-id")
+        self.resume_flag = spec.get("resume_flag", "--resume")
+        self.model_flag = spec.get("model_flag", "--model")
+        self.extractor = spec.get("extract", "raw")
 
     def build_command(
         self, system_prompt: str, prompt: str, session_id: str,
@@ -237,143 +251,174 @@ class Engine:
         at 128 KiB. model passes a host-specific model string verbatim;
         None keeps the host default. Returns (argv, ref_to_remember,
         stdin_text)."""
-        raise NotImplementedError
-
-    def extract_report(self, raw: str) -> str:
-        """Final assistant text from a raw capture; raw text as fallback."""
-        raise NotImplementedError
-
-    def ref_from_output(self, raw: str) -> str | None:
-        """Session ref recovered from a finished pass; None by default.
-        Engines whose host picks the session id (opencode) override this."""
-        return None
-
-
-class PiEngine(Engine):
-    name = "pi"
-    default_binary = "pi"
-
-    def build_command(self, system_prompt, prompt, session_id,
-                      session_ref, json_audit=True, model=None):
-        argv = [self.binary, "--print", "--approve",
-                "--append-system-prompt", system_prompt,
-                "--session-id", session_id]
-        if json_audit:
-            argv += ["--mode", "json"]
-        if model:
-            argv += ["--model", model]
-        return argv, None, prompt
-
-    def extract_report(self, raw: str) -> str:
-        last = None
-        for line in raw.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if rec.get("type") == "message_end":
-                msg = rec.get("message") or {}
-                if msg.get("role") == "assistant":
-                    last = msg
-        if last is None:
-            return raw
-        blocks = last.get("content")
-        if isinstance(blocks, list):
-            text = "".join(b.get("text", "") for b in blocks
-                           if isinstance(b, dict) and b.get("type") == "text")
-            return text.strip() or raw
-        if isinstance(blocks, str) and blocks.strip():
-            return blocks.strip()
-        return raw
-
-
-class ClaudeEngine(Engine):
-    name = "claude"
-    default_binary = "claude"
-
-    def build_command(self, system_prompt, prompt, session_id,
-                      session_ref, json_audit=True, model=None):
-        argv = [self.binary, "--print", "--dangerously-skip-permissions",
-                "--append-system-prompt", system_prompt]
-        if json_audit:
-            argv += ["--output-format", "json"]
-        if session_ref:
-            argv += ["--resume", session_ref]
-        else:
-            session_ref = str(uuid.uuid4())
-            argv += ["--session-id", session_ref]
-        if model:
-            argv += ["--model", model]
-        return argv, session_ref, prompt
-
-    def extract_report(self, raw: str) -> str:
-        try:
-            text = json.loads(raw).get("result")
-            if isinstance(text, str) and text.strip():
-                return text
-        except (json.JSONDecodeError, ValueError, AttributeError):
-            pass
-        return raw
-
-
-class OpenCodeEngine(Engine):
-    name = "opencode"
-    default_binary = "opencode"
-
-    def build_command(self, system_prompt, prompt, session_id,
-                      session_ref, json_audit=True, model=None):
-        argv = [self.binary, "run", "--auto", "--archived"]
-        if json_audit:
-            argv += ["--format", "json"]
-        if session_ref:
-            argv += ["--session", session_ref]
-        if model:
-            argv += ["--model", model]
-        # opencode has no --append-system-prompt: the manual rides in the message
-        return argv, None, f"{system_prompt}\n\n---\n\n{prompt}"
-
-    def ref_from_output(self, raw: str) -> str | None:
-        # every JSON event carries the host-chosen sessionID (ses_...)
+        argv = [self.binary, *self.run]
+        if self.system_mode == "flag":
+            argv += [self.system_flag, system_prompt]
         ref = None
-        for line in raw.splitlines():
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            sid = rec.get("sessionID")
-            if isinstance(sid, str) and sid.startswith("ses"):
-                ref = sid
-        return ref
+        if self.session_mode == "given":
+            argv += [self.session_flag, session_id]
+        elif self.session_mode == "uuid":
+            if session_ref:
+                argv += [self.resume_flag, session_ref]
+                ref = session_ref
+            else:
+                ref = str(uuid.uuid4())
+                argv += [self.session_flag, ref]
+        elif self.session_mode == "picked" and session_ref:
+            argv += [self.session_flag, session_ref]
+        if json_audit:
+            argv += self.audit
+        if model:
+            argv += [self.model_flag, model]
+        if self.stdin_mode == "system+prompt":
+            stdin_text = f"{system_prompt}\n\n---\n\n{prompt}"
+        else:
+            stdin_text = prompt
+        return argv, ref, stdin_text
 
     def extract_report(self, raw: str) -> str:
-        texts = []
-        for line in raw.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if rec.get("type") == "text":
-                text = (rec.get("part") or {}).get("text")
-                if isinstance(text, str):
-                    texts.append(text)
-        text = "".join(texts).strip()
-        return text or raw
+        return EXTRACTORS[self.extractor](raw)
+
+    def ref_from_output(self, raw: str) -> str | None:
+        return REF_FROM_OUTPUT.get(self.extractor, _no_ref)(raw)
 
 
-ENGINES = {"pi": PiEngine, "claude": ClaudeEngine, "opencode": OpenCodeEngine}
+def _no_ref(raw: str) -> str | None:
+    return None
+
+
+def _extract_pi(raw: str) -> str:
+    last = None
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if rec.get("type") == "message_end":
+            msg = rec.get("message") or {}
+            if msg.get("role") == "assistant":
+                last = msg
+    if last is None:
+        return raw
+    blocks = last.get("content")
+    if isinstance(blocks, list):
+        text = "".join(b.get("text", "") for b in blocks
+                       if isinstance(b, dict) and b.get("type") == "text")
+        return text.strip() or raw
+    if isinstance(blocks, str) and blocks.strip():
+        return blocks.strip()
+    return raw
+
+
+def _extract_claude(raw: str) -> str:
+    try:
+        text = json.loads(raw).get("result")
+        if isinstance(text, str) and text.strip():
+            return text
+    except (json.JSONDecodeError, ValueError, AttributeError):
+        pass
+    return raw
+
+
+def _extract_opencode(raw: str) -> str:
+    texts = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if rec.get("type") == "text":
+            text = (rec.get("part") or {}).get("text")
+            if isinstance(text, str):
+                texts.append(text)
+    text = "".join(texts).strip()
+    return text or raw
+
+
+def _extract_codex(raw: str) -> str:
+    last = None
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        for obj in (rec.get("item"), rec.get("msg"), rec):
+            if isinstance(obj, dict):
+                for key in ("text", "message", "content",
+                            "last_agent_message"):
+                    value = obj.get(key)
+                    if isinstance(value, str) and value.strip():
+                        last = value
+    return last or raw
+
+
+def _ref_opencode(raw: str) -> str | None:
+    # every JSON event carries the host-chosen sessionID (ses_...)
+    ref = None
+    for line in raw.splitlines():
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        sid = rec.get("sessionID")
+        if isinstance(sid, str) and sid.startswith("ses"):
+            ref = sid
+    return ref
+
+
+EXTRACTORS = {"pi": _extract_pi, "claude": _extract_claude,
+              "opencode": _extract_opencode, "codex": _extract_codex,
+              "raw": lambda raw: raw}
+REF_FROM_OUTPUT = {"opencode": _ref_opencode}
+
+
+HARNESS: dict[str, dict] = {
+    # binary and run: the headless invocation. system: "flag" delivers the
+    # manual via system_flag; "stdin" prepends it to the prompt. session:
+    # "given" passes our deterministic id; "uuid" mints or resumes a uuid;
+    # "picked" resumes a host-chosen ref; "none" starts fresh each pass.
+    # extract: which parser reads the final report out of the capture.
+    "pi": {
+        "binary": "pi", "run": ["--print", "--approve"],
+        "system": "flag", "audit": ["--mode", "json"],
+        "session": "given", "stdin": "prompt", "extract": "pi",
+    },
+    "claude": {
+        "binary": "claude",
+        "run": ["--print", "--dangerously-skip-permissions"],
+        "system": "flag", "audit": ["--output-format", "json"],
+        "session": "uuid", "stdin": "prompt", "extract": "claude",
+    },
+    "opencode": {
+        "binary": "opencode", "run": ["run", "--auto", "--archived"],
+        "system": "stdin", "audit": ["--format", "json"],
+        "session": "picked", "session_flag": "--session",
+        "stdin": "system+prompt", "extract": "opencode",
+    },
+    "codex": {
+        "binary": "codex",
+        "run": ["exec", "--dangerously-bypass-approvals-and-sandbox",
+                "--dangerously-bypass-hook-trust", "--skip-git-repo-check"],
+        "system": "stdin", "audit": ["--json"],
+        "session": "none", "stdin": "system+prompt", "extract": "codex",
+    },
+}
 
 
 def engine(name: str) -> Engine:
-    cls = ENGINES.get(name)
-    if cls is None:
-        die(f"unknown engine: {name} (supported: {', '.join(ENGINES)})", 2)
-    return cls()
+    if name not in HARNESS and name not in load_config().get("harness", {}):
+        die(f"unknown engine: {name} (supported: {', '.join(HARNESS)})", 2)
+    return Engine(name)
+
 
 
 # ------------------------------------------------------------- work orders

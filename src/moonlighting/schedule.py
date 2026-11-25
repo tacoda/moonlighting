@@ -95,7 +95,7 @@ def main() -> None:
     inst.add_argument("--max-orders", type=int, default=3,
                       help="orders per night (default: 3)")
     inst.add_argument("--engine", default=None,
-                      help="host agent: pi, claude or opencode. env "
+                      help="host agent: pi, claude, opencode, codex or any configured harness. env "
                            "FACTORY_ENGINE, then the config file, then pi")
     inst.add_argument("--model", default=os.environ.get("FACTORY_MODEL"),
                       help="model string for the engine, passed verbatim "

@@ -390,7 +390,7 @@ def main() -> None:
     cfg = factory.load_config().get("factory", {})
     ap.add_argument("--engine", default=os.environ.get("FACTORY_ENGINE")
                     or cfg.get("engine") or "pi",
-                    help="host agent: pi, claude or opencode (default pi). "
+                    help="host agent: pi, claude, opencode, codex or any configured harness. "
                          "env FACTORY_ENGINE, or config [factory] engine")
     ap.add_argument("--model", default=os.environ.get("FACTORY_MODEL")
                     or cfg.get("model") or None,

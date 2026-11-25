@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -51,13 +52,16 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Factory floor report.")
     ap.add_argument("--repo", default=None,
                     help="only show orders for this repo (name or path)")
+    ap.add_argument("--json", action="store_true",
+                    help="print the orders as JSON, for tools")
     args = ap.parse_args()
 
     fl = factory.floor()
     orders = fl["orders"]
 
-    console.print(f"[bold]factory floor[/bold] — {datetime.now():%Y-%m-%d %H:%M}")
-    show_locks(fl["locks"])
+    if not args.json:
+        console.print(f"[bold]factory floor[/bold] — {datetime.now():%Y-%m-%d %H:%M}")
+        show_locks(fl["locks"])
 
     filter_repo = None
     if args.repo:
@@ -84,6 +88,11 @@ def main() -> None:
         rows.append((order.id, order.title, order.status, target, state))
         if order.status in ("done", "rejected"):
             closed += 1
+
+    if args.json:
+        keys = ("id", "title", "status", "target", "branch")
+        print(json.dumps([dict(zip(keys, row)) for row in rows]))
+        return
 
     if rows:
         table = Table(show_header=True, header_style="bold")

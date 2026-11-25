@@ -187,8 +187,10 @@ def schedule_cmd(ctx: typer.Context):
              context_settings=FORWARD)
 def status_cmd(ctx: typer.Context,
                repo: str | None = typer.Option(
-                   None, "--repo", help="Only show orders for this repo.")):
-    _forward(ctx, "status", [], [("--repo", repo)])
+                   None, "--repo", help="Only show orders for this repo."),
+               as_json: bool = typer.Option(
+                   False, "--json", help="Print the orders as JSON, for tools.")):
+    _forward(ctx, "status", [], [("--repo", repo), ("--json", as_json)])
 
 
 if __name__ == "__main__":
