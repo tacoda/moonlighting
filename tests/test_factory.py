@@ -837,6 +837,6 @@ def test_night_applies_profile_identity(tmp_path, monkeypatch):
     order_text = (root / "work-orders" / "aaa1111-demo.md").read_text()
     assert "status: review" in order_text
     committed = subprocess.run(
-        ["git", "-C", str(root), "show", "--name-only", "--format="],
+        ["git", "-C", str(root), "log", "--name-only", "--format="],
         capture_output=True, text=True).stdout
     assert "work-orders/aaa1111-demo.md" in committed
