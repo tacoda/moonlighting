@@ -900,6 +900,53 @@ def test_init_no_cron_flag_skips(monkeypatch, capsys):
     assert "cron skipped" in capsys.readouterr().out
 
 
+def test_reject_records_reason_and_status():
+    orders = factory.orders_dir()
+    orders.mkdir(parents=True)
+    (orders / "a1b2c3d-x.md").write_text(GOOD_APPROVED)
+    r = run_module("reject", "a1b2c3d", "scope cut")
+    assert r.returncode == 0, r.stderr
+    text = (orders / "a1b2c3d-x.md").read_text()
+    assert "status: rejected" in text
+    assert "rejected — scope cut" in text
+
+
+def test_reject_requires_reason():
+    orders = factory.orders_dir()
+    orders.mkdir(parents=True)
+    (orders / "a1b2c3d-x.md").write_text(GOOD_APPROVED)
+    r = run_module("reject", "a1b2c3d")
+    assert r.returncode == 2
+    assert "usage" in r.stderr
+
+
+def test_show_prints_the_order():
+    orders = factory.orders_dir()
+    orders.mkdir(parents=True)
+    (orders / "a1b2c3d-x.md").write_text(ORDER)
+    r = run_module("show", "a1b2c3d")
+    assert r.returncode == 0, r.stderr
+    assert "## Goal" in r.stdout
+
+
+def test_edit_runs_editor_and_lints(tmp_path, monkeypatch):
+    stub = tmp_path / "fake_editor.py"
+    stub.write_text("#!/usr/bin/env python3\n"
+                    "import sys\n"
+                    "with open(sys.argv[1], 'a') as f:\n"
+                    "    f.write('\\n## Extra\\n- added by editor\\n')\n")
+    stub.chmod(0o755)
+    monkeypatch.setenv("EDITOR", str(stub))
+    orders = factory.orders_dir()
+    orders.mkdir(parents=True)
+    (orders / "a1b2c3d-x.md").write_text(GOOD_APPROVED)
+    r = run_module("edit", "a1b2c3d")
+    assert r.returncode == 0, r.stderr
+    text = (orders / "a1b2c3d-x.md").read_text()
+    assert "added by editor" in text
+    assert "lint: clean" in r.stdout
+
+
 def test_schedule_at_validation(monkeypatch):
     monkeypatch.setattr(schedule.shutil, "which", lambda name: None)
     with pytest.raises(factory.FactoryError):

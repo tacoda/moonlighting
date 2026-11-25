@@ -80,6 +80,13 @@ def approve_cmd(ctx: typer.Context,
     _forward(ctx, "approve", [order_id])
 
 
+@app.command("edit", help="Open an order in $EDITOR, then lint it.",
+             context_settings=FORWARD)
+def edit_cmd(ctx: typer.Context,
+             order_id: str = typer.Argument(..., help=ID_HELP)):
+    _forward(ctx, "edit", [order_id])
+
+
 @app.command("feedback", help="Send a review order back to blocked, with notes.",
              context_settings=FORWARD)
 def feedback_cmd(ctx: typer.Context,
@@ -169,6 +176,15 @@ def night_cmd(ctx: typer.Context,
               ("--max-orders", max_orders), ("--dry-run", dry_run)])
 
 
+@app.command("reject", help="Reject an order from any state, with a reason.",
+             context_settings=FORWARD)
+def reject_cmd(ctx: typer.Context,
+               order_id: str = typer.Argument(..., help=ID_HELP),
+               message: list[str] | None = typer.Argument(
+                   None, help="Why the order is rejected.")):
+    _forward(ctx, "reject", [order_id, *(message or [])])
+
+
 @app.command("remove", help="Delete an order file. Asks first unless --yes.",
              context_settings=FORWARD)
 def remove_cmd(ctx: typer.Context,
@@ -198,6 +214,13 @@ def rotate_logs_cmd(ctx: typer.Context,
              "schedule remove, schedule status.", context_settings=FORWARD)
 def schedule_cmd(ctx: typer.Context):
     _forward(ctx, "schedule")
+
+
+@app.command("show", help="Print one order file.",
+             context_settings=FORWARD)
+def show_cmd(ctx: typer.Context,
+             order_id: str = typer.Argument(..., help=ID_HELP)):
+    _forward(ctx, "show", [order_id])
 
 
 @app.command("status", help="Show the floor: orders, running locks, hints.",

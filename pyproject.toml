@@ -1,6 +1,6 @@
 [project]
 name = "moonlighting-factory"
-version = "0.5.4"
+version = "0.6.0"
 description = "A software factory: people decide by day, agents type by night."
 readme = "README.md"
 license = "MIT"
@@ -40,6 +40,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/moonlighting"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["paseo-plugin"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
