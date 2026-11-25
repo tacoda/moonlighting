@@ -26,14 +26,14 @@ engine = "pi"
 
 
 def _run(cmd: list[str]) -> bool:
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    """Run a setup step with inherited stdio. Installer prompts and
+    progress stay visible, so a slow install never looks like a hang."""
+    console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
+    r = subprocess.run(cmd)
     if r.returncode == 0:
-        console.print(f"[green]ok[/green] {' '.join(cmd)}")
+        console.print("[green]ok[/green]")
         return True
-    console.print(f"[red]failed[/red] {' '.join(cmd)}")
-    for stream in (r.stdout, r.stderr):
-        if stream.strip():
-            console.print(stream.strip())
+    console.print(f"[red]failed (exit {r.returncode})[/red]")
     return False
 
 
@@ -44,7 +44,9 @@ def main() -> None:
 
     if shutil.which("nwave-ai"):
         for host in hosts:
+            console.print(f"installing the nWave guard for {host} ...")
             _run(["nwave-ai", "install", "--platform", PLATFORMS[host]])
+        console.print("activating the guard for every host ...")
         if _run(["nwave-ai", "mode", "all"]):
             console.print("guard active. Revert with: nwave-ai mode opt-in")
     else:
