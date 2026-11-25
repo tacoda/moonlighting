@@ -1,7 +1,8 @@
 # moonlighting
 
 A software factory where **people work the day shift and agents work the night
-shift**. People decide; agents type. [Pi](https://pi.dev) is the workforce.
+shift**. People decide. Agents type. The workforce is the engine you select
+for the run: pi, Claude Code or opencode.
 
 ## How it works
 
@@ -12,7 +13,7 @@ executes it autonomously. In the morning it sits at `review` — with a report,
 a branch, and a diff, waiting for a human decision.
 
 ```
-day shift (people)                     night shift (pi agents)
+day shift (people)                     night shift (selected engine)
 decide what problems matter  ──────►   implement approved orders
 review branches & reports    ◄──────   flip orders to review/blocked
 merge, block, or reject               never merge, never touch main
@@ -34,7 +35,7 @@ and the morning starts with another:
 
 ```
 work-orders/            one markdown file per unit of work (NNN-title.md)
-night-shift/run.py      the night runner (headless pi or claude)
+night-shift/run.py      the night runner (headless pi, claude or opencode)
 night-shift/NIGHT-SHIFT.md   the night agent's operating manual
 night-shift/QA-SHIFT.md      the QA pre-shift reviewer's manual
 night-shift/lint-order.py    validate work orders before spending tokens
@@ -121,14 +122,13 @@ python3 day-shift/status.py
 
 ## Requirements
 
-- [pi](https://pi.dev) installed and logged in (run `pi` once, `/login`) —
-  or point `PI_BIN` at any compatible CLI
 - git and Python 3.9+ (the runtime needs only the standard library)
 - for development: [uv](https://docs.astral.sh/uv/) — `uv sync` installs
   pytest, `uv run pytest` runs the suite
-- one or more host CLIs: [pi](https://pi.dev) (`pi` → `/login` once),
-  Claude Code (`claude` installed and logged in) and/or
-  [opencode](https://opencode.ai) (`opencode auth login` once)
+- the host CLI for your selected engine, logged in. Pick [pi](https://pi.dev)
+  (`pi` → `/login` once), Claude Code (`claude` installed and logged in)
+  and/or [opencode](https://opencode.ai) (`opencode auth login` once). Or
+  point `PI_BIN`, `CLAUDE_BIN` or `OPENCODE_BIN` at a compatible binary
 - for self-running nights: `crontab` (install with `night-shift/schedule.py install`)
 
 ## First night
