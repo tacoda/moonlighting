@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>moonlighting — the software factory that works the night shift</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        ink: { 950: '#06070d', 900: '#0a0c14', 800: '#101322', 700: '#1a1e30' },
+        moon: { DEFAULT: '#e8ecf8', soft: '#c7d2f0', dim: '#8b94b8' },
+        accent: { DEFAULT: '#8b9cf6', soft: '#b7c3ff', cyan: '#7dd8f0' },
+      },
+      fontFamily: {
+        sans: ['Inter', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'monospace'],
+      },
+    },
+  },
+}
+</script>
+<style>
+  ::-webkit-scrollbar { width: 10px; }
+  ::-webkit-scrollbar-track { background: #0a0c14; }
+  ::-webkit-scrollbar-thumb { background: #232842; border-radius: 5px; }
+
+  html { scroll-behavior: smooth; }
+  body { background: #06070d; color: #e8ecf8; font-family: 'Inter', sans-serif; }
+
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(139, 156, 246, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(139, 156, 246, 0.05) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 30%, transparent 100%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 30%, transparent 100%);
+  }
+
+  .blob {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(80px);
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
+  .moon-glow {
+    position: absolute;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgba(232,236,248,0.9) 0%, rgba(183,195,255,0.25) 45%, transparent 70%);
+    filter: blur(4px);
+    pointer-events: none;
+  }
+
+  .gradient-text {
+    background: linear-gradient(90deg, #b7c3ff, #7dd8f0, #e8ecf8, #b7c3ff);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: gradientX 10s ease infinite;
+  }
+
+  .glass {
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015));
+    border: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .glass-hover { transition: transform 0.4s cubic-bezier(0.22,1,0.36,1), border-color 0.4s, box-shadow 0.4s; }
+  .glass-hover:hover {
+    transform: translateY(-6px);
+    border-color: rgba(139,156,246,0.5);
+    box-shadow: 0 12px 40px -8px rgba(139,156,246,0.25);
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #5b6cf0, #8b9cf6);
+    transition: transform 0.3s cubic-bezier(0.22,1,0.36,1), box-shadow 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px -6px rgba(139,156,246,0.5); }
+  .btn-primary::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.25) 50%, transparent 60%);
+    transform: translateX(-100%);
+    transition: transform 0.6s;
+  }
+  .btn-primary:hover::after { transform: translateX(100%); }
+
+  .btn-ghost {
+    border: 1px solid rgba(255,255,255,0.12);
+    transition: border-color 0.3s, background 0.3s, transform 0.3s;
+  }
+  .btn-ghost:hover { border-color: rgba(139,156,246,0.6); background: rgba(139,156,246,0.08); transform: translateY(-2px); }
+
+  .nav-link { position: relative; }
+  .nav-link::after {
+    content: '';
+    position: absolute; left: 0; bottom: -4px;
+    width: 100%; height: 2px;
+    background: linear-gradient(90deg, #8b9cf6, #7dd8f0);
+    transform: scaleX(0); transform-origin: left;
+    transition: transform 0.3s cubic-bezier(0.22,1,0.36,1);
+  }
+  .nav-link:hover::after { transform: scaleX(1); }
+
+  .caret::after { content: '▍'; color: #8b9cf6; animation: blink 1.2s step-end infinite; }
+
+  .reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.7s cubic-bezier(0.22,1,0.36,1), transform 0.7s cubic-bezier(0.22,1,0.36,1); }
+  .reveal.visible { opacity: 1; transform: translateY(0); }
+
+  @keyframes gradientX { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+  @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-20px); } }
+  @keyframes fadeInUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes wane { 0%,100% { box-shadow: 0 0 60px 10px rgba(183,195,255,0.35); } 50% { box-shadow: 0 0 90px 18px rgba(183,195,255,0.55); } }
+
+  .animate-float { animation: float 14s ease-in-out infinite; }
+  .hero-enter { animation: fadeInUp 0.8s cubic-bezier(0.22,1,0.36,1) both; }
+  .moon-orb { animation: wane 8s ease-in-out infinite, float 14s ease-in-out infinite; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .reveal { opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body class="antialiased overflow-x-hidden">
+
+<!-- ambient background -->
+<div class="fixed inset-0 pointer-events-none">
+  <div class="absolute inset-0 bg-grid"></div>
+  <div class="blob animate-float" style="width:500px;height:500px;background:#3b4a8f;top:-10%;left:-10%;"></div>
+  <div class="blob animate-float" style="width:400px;height:400px;background:#1e3a5f;bottom:0;right:-5%;animation-delay:-7s;"></div>
+  <div class="blob animate-float" style="width:300px;height:300px;background:#4a3b7a;top:40%;right:20%;animation-delay:-3s;"></div>
+</div>
+
+<!-- nav -->
+<header class="fixed top-0 inset-x-0 z-50 px-6 lg:px-8 pt-4">
+  <nav class="glass max-w-6xl mx-auto rounded-full px-6 py-3 flex items-center justify-between">
+    <a href="#top" class="font-mono text-sm text-moon-soft">🌙 moonlighting</a>
+    <div class="hidden sm:flex items-center gap-8 text-sm text-moon-dim">
+      <a href="#how" class="nav-link hover:text-moon">How it works</a>
+      <a href="#commands" class="nav-link hover:text-moon">Commands</a>
+      <a href="#rules" class="nav-link hover:text-moon">Rules</a>
+      <a href="#install" class="nav-link hover:text-moon">Install</a>
+    </div>
+    <a href="#install" class="btn-primary rounded-full px-4 py-2 text-sm font-medium text-white">Install</a>
+  </nav>
+</header>
+
+<main id="top" class="relative max-w-6xl mx-auto px-6 lg:px-8">
+
+  <!-- hero -->
+  <section class="pt-40 pb-24 text-center">
+    <div class="relative inline-block mb-10">
+      <div class="moon-orb relative w-28 h-28 mx-auto rounded-full"
+           style="background: radial-gradient(circle at 35% 35%, #f4f6ff 0%, #c7d2f0 55%, #8b94b8 100%);"></div>
+      <div class="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-accent-soft opacity-70"></div>
+      <div class="absolute top-6 -right-8 w-2 h-2 rounded-full bg-accent-cyan opacity-60"></div>
+      <div class="absolute -bottom-1 -left-6 w-2.5 h-2.5 rounded-full bg-accent-soft opacity-50"></div>
+    </div>
+    <p class="hero-enter font-mono text-sm uppercase tracking-[0.3em] text-moon-dim" style="animation-delay:80ms">a software factory</p>
+    <h1 class="hero-enter mt-4 text-5xl sm:text-6xl font-extrabold tracking-tight leading-tight" style="animation-delay:140ms">
+      People work the <span class="gradient-text">day shift</span>.<br>
+      Agents work the <span class="gradient-text">night shift</span>.
+    </h1>
+    <p class="hero-enter mt-6 max-w-2xl mx-auto text-lg text-moon-dim" style="animation-delay:220ms">
+      <strong class="text-moon">moonlighting</strong> turns approved work orders into branches,
+      reports and pull requests — while you sleep. People decide. Agents type.
+    </p>
+    <div class="hero-enter mt-10 flex flex-wrap items-center justify-center gap-4" style="animation-delay:300ms">
+      <a href="#install" class="btn-primary rounded-full px-6 py-3 font-medium text-white">Get started</a>
+      <a href="https://github.com/tacoda/moonlighting" class="btn-ghost rounded-full px-6 py-3 font-medium text-moon-soft">View the source</a>
+    </div>
+
+    <!-- terminal -->
+    <div class="hero-enter glass rounded-2xl max-w-2xl mx-auto mt-16 text-left overflow-hidden" style="animation-delay:380ms">
+      <div class="flex items-center gap-2 px-5 py-3 border-b border-white/8">
+        <span class="w-3 h-3 rounded-full bg-[#f472b6]/70"></span>
+        <span class="w-3 h-3 rounded-full bg-[#fbbf24]/70"></span>
+        <span class="w-3 h-3 rounded-full bg-[#34d399]/70"></span>
+        <span class="ml-3 font-mono text-xs text-moon-dim">~/your-repo · moonlighting</span>
+      </div>
+      <div class="p-6 font-mono text-sm leading-7">
+        <div><span class="text-accent-cyan">$</span> moonlighting new-order "Add rate limiting"</div>
+        <div class="text-moon-dim">✓ wrote orders/wo-014.md · status: draft</div>
+        <div><span class="text-accent-cyan">$</span> moonlighting approve wo-014</div>
+        <div class="text-moon-dim">✓ status: approved — the night shift picks it up at 00:01</div>
+        <div><span class="text-accent-cyan">$</span> moonlighting status</div>
+        <div><span class="text-accent-soft">review</span>&nbsp;&nbsp;wo-014&nbsp;&nbsp;Add rate limiting&nbsp;&nbsp;<span class="text-accent-cyan">branch: wo/014</span> <span class="caret"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- how it works -->
+  <section id="how" class="py-24">
+    <p class="reveal font-mono text-xs uppercase tracking-[0.3em] text-accent">The contract</p>
+    <h2 class="reveal mt-3 text-4xl sm:text-5xl font-extrabold tracking-tight">One <span class="gradient-text">status line</span> between the shifts</h2>
+    <p class="reveal mt-5 max-w-2xl text-moon-dim text-lg">Work moves through the factory as small markdown work orders. Marking an order <code class="font-mono text-accent-soft">approved</code> is a standing instruction: tonight, an agent executes it autonomously. By morning it sits at <code class="font-mono text-accent-soft">review</code> — with a report, a branch and a diff, waiting for a human decision.</p>
+
+    <div class="mt-14 grid md:grid-cols-2 gap-6">
+      <div class="reveal glass glass-hover rounded-2xl p-8 relative overflow-hidden">
+        <div class="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-accent/20 blur-3xl pointer-events-none"></div>
+        <p class="font-mono text-xs uppercase tracking-widest text-[#fbbf24]">☀️ Day shift — people</p>
+        <h3 class="mt-3 text-2xl font-bold">Decide what matters</h3>
+        <ul class="mt-5 space-y-3 text-moon-dim">
+          <li class="flex gap-3"><span class="text-accent">→</span> Write and approve work orders</li>
+          <li class="flex gap-3"><span class="text-accent">→</span> Review branches, reports and diffs</li>
+          <li class="flex gap-3"><span class="text-accent">→</span> Merge on GitHub, block, or reject</li>
+        </ul>
+      </div>
+      <div class="reveal glass glass-hover rounded-2xl p-8 relative overflow-hidden" style="transition-delay:60ms">
+        <div class="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-accent-cyan/20 blur-3xl pointer-events-none"></div>
+        <p class="font-mono text-xs uppercase tracking-widest text-accent-cyan">🌙 Night shift — agents</p>
+        <h3 class="mt-3 text-2xl font-bold">Implement approved orders</h3>
+        <ul class="mt-5 space-y-3 text-moon-dim">
+          <li class="flex gap-3"><span class="text-accent-cyan">→</span> One order, one branch (<code class="font-mono">wo/&lt;id&gt;</code>)</li>
+          <li class="flex gap-3"><span class="text-accent-cyan">→</span> Flip orders to review or blocked</li>
+          <li class="flex gap-3"><span class="text-accent-cyan">→</span> Never merge, never touch main</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="reveal glass rounded-2xl mt-6 p-8 font-mono text-sm sm:text-base leading-8 overflow-x-auto">
+      <div class="text-moon-dim whitespace-pre">day shift (people)                     night shift (selected engine)</div>
+      <div class="whitespace-pre"><span class="text-[#fbbf24]">decide what problems matter</span>  ──────►  <span class="text-accent-cyan">implement approved orders</span></div>
+      <div class="whitespace-pre"><span class="text-[#fbbf24]">review branches &amp; reports</span>     ◄──────  <span class="text-accent-cyan">flip orders to review/blocked</span></div>
+      <div class="whitespace-pre"><span class="text-[#fbbf24]">merge, block, or reject</span>                <span class="text-accent-cyan">never merge, never touch main</span></div>
+    </div>
+  </section>
+
+  <!-- commands -->
+  <section id="commands" class="py-24">
+    <p class="reveal font-mono text-xs uppercase tracking-[0.3em] text-accent">One binary</p>
+    <h2 class="reveal mt-3 text-4xl sm:text-5xl font-extrabold tracking-tight">A subcommand per <span class="gradient-text">workflow</span></h2>
+    <div class="mt-14 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+      <div class="reveal glass glass-hover rounded-2xl p-6">
+        <p class="font-mono text-accent-soft">moonlighting new-order "Title"</p>
+        <p class="mt-2 text-sm text-moon-dim">Create an order; it asks, then offers to approve.</p>
+      </div>
+      <div class="reveal glass glass-hover rounded-2xl p-6" style="transition-delay:60ms">
+        <p class="font-mono text-accent-soft">moonlighting status</p>
+        <p class="mt-2 text-sm text-moon-dim">See every order: approved, blocked, review, draft, done.</p>
+      </div>
+      <div class="reveal glass glass-hover rounded-2xl p-6" style="transition-delay:120ms">
+        <p class="font-mono text-accent-soft">moonlighting approve ID</p>
+        <p class="mt-2 text-sm text-moon-dim">Approve a draft for tonight's run.</p>
+      </div>
+      <div class="reveal glass glass-hover rounded-2xl p-6">
+        <p class="font-mono text-accent-soft">moonlighting night</p>
+        <p class="mt-2 text-sm text-moon-dim">Run the queue — with --repo, --engine, --model, --max-orders.</p>
+      </div>
+      <div class="reveal glass glass-hover rounded-2xl p-6" style="transition-delay:60ms">
+        <p class="font-mono text-accent-soft">moonlighting accept ID</p>
+        <p class="mt-2 text-sm text-moon-dim">Push the branch and open a PR. You merge it on GitHub.</p>
+      </div>
+      <div class="reveal glass glass-hover rounded-2xl p-6" style="transition-delay:120ms">
+        <p class="font-mono text-accent-soft">moonlighting reply ID "text"</p>
+        <p class="mt-2 text-sm text-moon-dim">One reply: parks a review, answers a blocked order.</p>
+      </div>
+      <div class="reveal glass glass-hover rounded-2xl p-6">
+        <p class="font-mono text-accent-soft">moonlighting lint-orders</p>
+        <p class="mt-2 text-sm text-moon-dim">Check every order before spending tokens.</p>
+      </div>
+      <div class="reveal glass glass-hover rounded-2xl p-6" style="transition-delay:60ms">
+        <p class="font-mono text-accent-soft">moonlighting schedule install</p>
+        <p class="mt-2 text-sm text-moon-dim">Nightly cron at 00:01. Remove and status too.</p>
+      </div>
+      <div class="reveal glass glass-hover rounded-2xl p-6" style="transition-delay:120ms">
+        <p class="font-mono text-accent-soft">moonlighting rotate-logs --days 90</p>
+        <p class="mt-2 text-sm text-moon-dim">Gzip old logs. Never deletes.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- rules -->
+  <section id="rules" class="py-24">
+    <p class="reveal font-mono text-xs uppercase tracking-[0.3em] text-accent">Guardrails</p>
+    <h2 class="reveal mt-3 text-4xl sm:text-5xl font-extrabold tracking-tight">The factory has <span class="gradient-text">house rules</span></h2>
+    <div class="mt-12 grid md:grid-cols-3 gap-6">
+      <div class="reveal glass glass-hover rounded-2xl p-7">
+        <span class="text-3xl">🌙</span>
+        <h3 class="mt-4 font-bold text-lg">Approved only</h3>
+        <p class="mt-2 text-sm text-moon-dim">The night shift executes only <code class="font-mono text-accent-soft">approved</code> orders, each on its own branch.</p>
+      </div>
+      <div class="reveal glass glass-hover rounded-2xl p-7" style="transition-delay:60ms">
+        <span class="text-3xl">🔒</span>
+        <h3 class="mt-4 font-bold text-lg">Humans merge</h3>
+        <p class="mt-2 text-sm text-moon-dim">Agents never merge locally. <code class="font-mono text-accent-soft">accept</code> opens a PR; the merge is yours.</p>
+      </div>
+      <div class="reveal glass glass-hover rounded-2xl p-7" style="transition-delay:120ms">
+        <span class="text-3xl">📦</span>
+        <h3 class="mt-4 font-bold text-lg">Own your state</h3>
+        <p class="mt-2 text-sm text-moon-dim">Orders, logs and clones live under your data directory. No checkout needed to run the binary.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- install -->
+  <section id="install" class="py-24">
+    <div class="reveal glass rounded-3xl p-10 sm:p-14 text-center relative overflow-hidden">
+      <div class="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-accent/25 blur-3xl pointer-events-none"></div>
+      <h2 class="text-4xl sm:text-5xl font-extrabold tracking-tight">Turn the lights <span class="gradient-text">off</span></h2>
+      <p class="mt-4 text-moon-dim text-lg">uv runs everything under the hood. One install, one nightly cron.</p>
+      <div class="mt-8 glass rounded-xl max-w-xl mx-auto text-left font-mono text-sm p-5 leading-8">
+        <div><span class="text-accent-cyan">$</span> uv tool install moonlighting-factory</div>
+        <div><span class="text-accent-cyan">$</span> moonlighting schedule install</div>
+        <div class="text-moon-dim">✓ cron installed — first run tonight at 00:01</div>
+      </div>
+      <p class="mt-6 text-sm text-moon-dim">Inside a factory checkout, run commands with <code class="font-mono text-accent-soft">uv run moonlighting ...</code></p>
+      <div class="mt-8 flex flex-wrap justify-center gap-4">
+        <a href="https://github.com/tacoda/moonlighting" class="btn-primary rounded-full px-6 py-3 font-medium text-white">Get the source</a>
+        <a href="https://github.com/tacoda/moonlighting/blob/main/docs/runbook.md" class="btn-ghost rounded-full px-6 py-3 font-medium text-moon-soft">Read the runbook</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="relative border-t border-white/8 mt-12">
+  <div class="max-w-6xl mx-auto px-6 lg:px-8 py-10 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-moon-dim">
+    <p class="font-mono">🌙 moonlighting · work the night shift</p>
+    <div class="flex items-center gap-6">
+      <a href="https://github.com/tacoda" class="hover:text-moon transition-colors">GitHub</a>
+      <a href="https://blog.tacoda.dev" class="hover:text-moon transition-colors">Blog</a>
+      <a href="mailto:ian@tacoda.dev" class="hover:text-moon transition-colors">Get in touch</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((e) => { if (e.isIntersecting) e.target.classList.add('visible'); });
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach((el) => observer.observe(el));
+</script>
+
+</body>
+</html>

@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+dist/
+repos/*
+!repos/.gitkeep
+night-shift/logs/errors.log
+night-shift/locks/*
+!night-shift/locks/.gitkeep
+night-shift/worktrees/*
+!night-shift/worktrees/.gitkeep
+night-shift/logs/cron.log
+night-shift/sessions.json
+# nWave config (keep .nwave/config.json trackable)
+.nwave/*
+!.nwave/config.json
