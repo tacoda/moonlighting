@@ -116,10 +116,16 @@ Write it in that engine's syntax from the table. Each run header records
 the model that ran. The same chain picks the harness: an `engine:` field,
 then `--engine` (or `FACTORY_ENGINE`), then the repo binding, then
 `[factory]`, then pi. A `qa-model:` field follows the same chain for the
-QA pass.
+QA pass, and a `plan-model:` field does it for the planning pass.
 
 The QA pass can run its own model. Use `--qa-model` (or env
 `FACTORY_QA_MODEL`). Without it, QA uses the order model.
+
+The night can also run a planning pass before the builder. Set
+`plan-model` the same way (`--plan-model`, `FACTORY_PLAN_MODEL`, a repo
+binding or `[factory]`). The planner writes the approach, the files and
+the risks, and the builder follows that plan. `FACTORY_PLAN=0` turns the
+pass off.
 
 Every run is double-checked by default:
 
@@ -129,6 +135,9 @@ Every run is double-checked by default:
 - **QA pre-shift** — a second agent pass reviews the night's diff against the
   acceptance criteria and writes a verdict (SHIP/BLOCK/UNSURE) into the order
   file, so the morning decision takes minutes. Opt out with `FACTORY_QA=0`.
+- **Planning pass** — set a `plan-model` and a separate agent writes the
+  approach before the builder starts. Off until a `plan-model` resolves
+  anywhere in the chain. Opt out with `FACTORY_PLAN=0`.
 
 ## Parallel nights
 
