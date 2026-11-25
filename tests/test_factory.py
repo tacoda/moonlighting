@@ -887,7 +887,7 @@ def test_init_cron_flag_installs(monkeypatch, capsys):
     monkeypatch.setattr(schedule, "current_crontab", lambda: "")
     monkeypatch.setattr(schedule, "set_crontab", lambda content: None)
     monkeypatch.setattr(schedule.shutil, "which", lambda name: "/usr/bin/x")
-    monkeypatch.setattr(sys, "argv", ["moonlighting", "init", "--cron"])
+    monkeypatch.setattr(sys, "argv", ["moonlighting", "--cron"])
     setup.main()
     assert "night schedule installed" in capsys.readouterr().out
 
@@ -895,7 +895,7 @@ def test_init_cron_flag_installs(monkeypatch, capsys):
 def test_init_no_cron_flag_skips(monkeypatch, capsys):
     from moonlighting import setup
 
-    monkeypatch.setattr(sys, "argv", ["moonlighting", "init", "--no-cron"])
+    monkeypatch.setattr(sys, "argv", ["moonlighting", "--no-cron"])
     setup.main()
     assert "cron skipped" in capsys.readouterr().out
 
