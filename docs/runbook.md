@@ -19,9 +19,9 @@
    at least one commit.
 6. Orders live in `work-orders/`, tracked in the factory repo. Set
    `FACTORY_ORDERS_DIR` to point somewhere else.
-7. Per-user config: `~/.config/moonlighting/config.toml` sets defaults for
-   engine, models and orders dir, and binds repos to paths and identities.
-   Sample: `docs/config-sample.toml`.
+7. Per-user config: `~/.config/moonlighting/config.toml` on each machine
+   sets defaults for engine, models and orders dir, and binds repos to
+   paths and identities. Sample: `docs/config-sample.toml`.
 8. Smoke-test: `moonlighting night --dry-run`
 9. When you trust the loop, let nights start themselves:
    `moonlighting schedule install [--engine pi|claude|opencode]`

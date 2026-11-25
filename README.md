@@ -41,10 +41,12 @@ uv runs everything under the hood. Commands work through
 
 ## Config
 
-Per-user defaults live in `~/.config/moonlighting/config.toml`. Move it with
-`MOONLIGHTING_CONFIG`. The file sets the engine, models and orders directory,
-and binds repo names to paths and identities. Precedence: flags beat env vars
-beat the config file. A commented sample lives at
+Every user keeps a config at `~/.config/moonlighting/config.toml` on their
+own machine (`MOONLIGHTING_CONFIG` moves it). The file sets the engine,
+models and orders directory, and binds repo names to paths and identities
+through named profiles. Precedence: flags beat env vars beat the config
+file. Copy [`docs/config-sample.toml`](docs/config-sample.toml) and fill in
+your own names, repos and profiles. A commented sample lives at
 [`docs/config-sample.toml`](docs/config-sample.toml).
 
 ## Layout

@@ -1,35 +1,38 @@
 # moonlighting user config
 # Default location: ~/.config/moonlighting/config.toml
-# Override the location with MOONLIGHTING_CONFIG.
+# Move it with MOONLIGHTING_CONFIG. One file per user, per machine.
 # Precedence: command flags beat env vars beat this file.
 
 [factory]
-engine = "pi"          # pi, claude or opencode
-model = ""             # optional, engine-specific syntax, passed verbatim
-qa-model = ""          # optional, empty means the order model
-orders-dir = ""        # optional, empty means <factory root>/work-orders
+engine = "pi"            # pi, claude or opencode
+model = ""               # optional, engine-specific syntax, passed verbatim
+qa-model = ""            # optional, empty means the order model
+orders-dir = ""          # optional, empty means <factory root>/work-orders
 
-# A profile gives one identity for night work on bound repos.
-# gh-account must exist in `gh auth status`. ssh-key is optional.
+# Profiles hold one identity each. Bind a profile to a repo from the
+# [repo.NAME] sections. Every key is optional: leave out what you do not
+# need. gh-account must exist in `gh auth status`.
 
 [profile.personal]
-name = "tacoda"
-email = "tacoda@users.noreply.github.com"
-gh-account = "tacoda"
-ssh-key = ""
+name = "Your Name"
+email = "you@example.com"
+gh-account = "your-github-user"
+ssh-key = ""                        # e.g. "~/.ssh/id_ed25519"
 
 [profile.work]
-name = "T. Coda"
-email = "t.coda@work.example"
-gh-account = "tacoda-work"
+name = "Your Work Name"
+email = "you@work.example"
+gh-account = "your-work-github-user"
 ssh-key = "~/.ssh/id_work"
 
-# Bind repos by the name you write in an order's repo: field.
+# Bind repos by the name an order writes in its repo: field.
+# The path may be absolute, "~/...", or relative to the factory root.
+# Any profile name works: add as many [profile.X] sections as you need.
 
-[repo.tacoda.github.io]
-path = "~/tacoda/tacoda.github.io"
+[repo.site]
+path = "~/code/site"
 profile = "personal"
 
-[repo.keystone]
-path = "~/repos/keystone"
+[repo.api]
+path = "~/code/api"
 profile = "work"
