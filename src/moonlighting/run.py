@@ -185,6 +185,7 @@ class NightRun:
                 print(f"note: {repo.display()} has uncommitted changes — "
                       f"isolated from the night (it runs in a worktree)")
             base = repo.base_ref()
+            repo_env = repo.env()
             with factory.Worktree(repo, self._wpath(repo, order.id),
                                   order.branch, base) as wt:
                 prompt = (f"Execute work order {order.id} now, following the "
@@ -197,7 +198,8 @@ class NightRun:
                     json_audit=self.json_audit, model=model)
 
                 rc, raw_events, run_err = self._agent_pass(argv, wt.path,
-                                                           stdin_text)
+                                                           stdin_text,
+                                                           env_extra=repo_env)
                 # hosts that pick their own session id (opencode) surface it here
                 new_ref = new_ref or self.engine.ref_from_output(raw_events)
                 if new_ref:
@@ -206,7 +208,7 @@ class NightRun:
                           if self.json_audit else raw_events)
                 secs = int(time.monotonic() - started)
 
-                self._sweep(order.id, order.branch, wt.path)
+                self._sweep(order.id, order.branch, wt.path, repo)
                 ahead = int(factory.git_out(wt.path, "rev-list", "--count",
                                             f"{base}..HEAD") or "0")
                 no_commits = ahead == 0
@@ -228,7 +230,9 @@ class NightRun:
 
     def _agent_pass(self, argv: list[str], cwd: Path,
                     stdin_text: str | None = None,
-                    timeout_secs: int | None = None) -> tuple[int, str, str]:
+                    timeout_secs: int | None = None,
+                    env_extra: dict[str, str] | None = None
+                    ) -> tuple[int, str, str]:
         """One headless engine pass. Output is captured outside any working
         tree: anything written there could be swept onto a branch and vanish
         with a later checkout. Returns (rc, raw_stdout, stderr)."""
@@ -237,21 +241,26 @@ class NightRun:
             err_path = Path(tmp) / "err.log"
             rc = factory.run_under_timeout(
                 argv, cwd, timeout_secs or self.timeout_secs, out_path,
-                err_path, input_text=stdin_text,
+                err_path, input_text=stdin_text, env_extra=env_extra,
                 not_found_hint=f"(set {self.engine.name.upper()}_BIN)")
             return rc, out_path.read_text(), err_path.read_text()
 
-    def _sweep(self, order_id: str, branch: str, wt_path: Path) -> None:
+    def _sweep(self, order_id: str, branch: str, wt_path: Path,
+               repo: factory.TargetRepo) -> None:
         """The agent must leave a committed branch; sweep up what it forgot."""
         if not factory.clean_tree(wt_path):
+            env = repo.env()
             factory.git(wt_path, "add", "-A")
             factory.git(wt_path, "commit", "-q", "-m",
-                        f"wo-{order_id}: night-shift WIP (auto-committed by runner)")
+                        f"wo-{order_id}: night-shift WIP (auto-committed by runner)",
+                        env=env)
             print(f"note: uncommitted work was auto-committed to {branch}")
 
     def _qa_pass(self, order: factory.WorkOrder, wt_path: Path,
                  branch: str, base: str, model: str | None = None,
-                 timeout_secs: int | None = None) -> tuple[int, str, str, bool]:
+                 timeout_secs: int | None = None,
+                 env_extra: dict[str, str] | None = None
+                 ) -> tuple[int, str, str, bool]:
         """Advisory second pass: verify, don't trust. The QA manual says
         read-only. The tip guard keeps the branch intact even when the QA
         model misbehaves. Returns (rc, raw, report, tip_moved)."""
@@ -267,7 +276,8 @@ class NightRun:
         print(f"QA pre-shift reviewing wo-{order.id} ...")
         tip_before = factory.git_out(wt_path, "rev-parse", "HEAD")
         rc, raw, _ = self._agent_pass(argv, wt_path, stdin_text,
-                                      timeout_secs=timeout_secs)
+                                      timeout_secs=timeout_secs,
+                                      env_extra=env_extra)
         new_ref = new_ref or self.engine.ref_from_output(raw)
         if new_ref:
             self.sessions.set_ref(f"{self.engine_name}:qa:{order.id}", new_ref)
@@ -348,9 +358,12 @@ class NightRun:
                     f"{secs}s — report in order file; "
                     f"raw: {outfile.relative_to(self.root)}\n")
 
-        # order files and sessions.json are local state and stay untracked.
-        # The logs carry the record.
+        # night bookkeeping: the order file and the logs commit together.
+        # A relocated orders dir belongs to the user, so only the default
+        # location gets committed here.
         add_paths = ["night-shift/logs"]
+        if self.orders == self.root / "work-orders":
+            add_paths.insert(0, str(order.rel))
         factory.git(self.root, "add", *add_paths)
         factory.git(self.root, "commit", "-q", "-m",
                     f"night-shift: wo-{order.id} -> {new_status} "
@@ -394,15 +407,21 @@ class NightRun:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Execute approved work orders (night shift).")
-    ap.add_argument("--engine", default=os.environ.get("FACTORY_ENGINE", "pi"),
+    cfg = factory.load_config().get("factory", {})
+    ap.add_argument("--engine", default=os.environ.get("FACTORY_ENGINE")
+                    or cfg.get("engine") or "pi",
                     help="host agent: pi, claude or opencode (default pi). "
-                         "env FACTORY_ENGINE")
-    ap.add_argument("--model", default=os.environ.get("FACTORY_MODEL"),
+                         "env FACTORY_ENGINE, or config [factory] engine")
+    ap.add_argument("--model", default=os.environ.get("FACTORY_MODEL")
+                    or cfg.get("model") or None,
                     help="model string for the engine, passed verbatim "
-                         "(host-specific syntax). env FACTORY_MODEL")
-    ap.add_argument("--qa-model", default=os.environ.get("FACTORY_QA_MODEL"),
+                         "(host-specific syntax). env FACTORY_MODEL, or "
+                         "config [factory] model")
+    ap.add_argument("--qa-model", default=os.environ.get("FACTORY_QA_MODEL")
+                    or cfg.get("qa-model") or None,
                     help="model for the QA pass. Falls back to the order "
-                         "model. env FACTORY_QA_MODEL")
+                         "model. env FACTORY_QA_MODEL, or config "
+                         "[factory] qa-model")
     ap.add_argument("--repo", default=None, metavar="REPO",
                     help="only process orders for this repo (path or git URL)")
     ap.add_argument("--max-orders", type=int, default=1,

@@ -763,3 +763,79 @@ def test_remove_deletes_order(tmp_path):
         cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     assert r3.returncode == 1
     assert "found 0" in r3.stderr
+
+
+def test_config_sets_orders_dir(tmp_path, monkeypatch):
+    inbox = str(tmp_path / "inbox")
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(f'[factory]\norders-dir = "{inbox}"\n')
+    monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
+    root = tmp_path / "floor"
+    root.mkdir()
+    assert factory.orders_dir(root) == tmp_path / "inbox"
+    monkeypatch.setenv("FACTORY_ORDERS_DIR", str(tmp_path / "envdir"))
+    assert factory.orders_dir(root) == tmp_path / "envdir"
+
+
+def test_repo_name_resolution_and_identity(tmp_path, monkeypatch):
+    target = make_git_repo(tmp_path / "target")
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(
+        "[profile.work]\n"
+        'name = "Work Bot"\n'
+        'email = "bot@work.example"\n'
+        "\n"
+        f'[repo.demo]\npath = "{target}"\nprofile = "work"\n'
+    )
+    monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
+    repo = factory.TargetRepo.resolve(tmp_path, "demo")
+    assert repo is not None and repo.path == target
+    assert repo.profile_name == "work"
+    env = repo.env()
+    assert env["GIT_AUTHOR_NAME"] == "Work Bot"
+    assert env["GIT_AUTHOR_EMAIL"] == "bot@work.example"
+
+
+def test_night_applies_profile_identity(tmp_path, monkeypatch):
+    root = make_git_repo(tmp_path / "floor")
+    target = make_git_repo(tmp_path / "target")
+    (root / "work-orders").mkdir()
+    ns = root / "night-shift"
+    ns.mkdir()
+    (ns / "NIGHT-SHIFT.md").write_text("# manual\n")
+    (ns / "QA-SHIFT.md").write_text("# qa\n")
+    order = ("---\nid: aaa1111\ntitle: Demo\nstatus: approved\n"
+             "created: 2026-01-01\nrepo: demo\n---\n\n## Goal\n\ng.\n\n"
+             "## Tasks\n\n- t.\n\n## Acceptance criteria\n\n- a.\n")
+    (root / "work-orders" / "aaa1111-demo.md").write_text(order)
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(
+        "[profile.work]\n"
+        'name = "Work Bot"\n'
+        'email = "bot@work.example"\n'
+        "\n"
+        f'[repo.demo]\npath = "{target}"\nprofile = "work"\n'
+    )
+    monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
+    monkeypatch.setenv("FACTORY_QA", "0")
+    stub = tmp_path / "stub_engine.py"
+    stub.write_text("from pathlib import Path\n"
+                    "Path('night_work.txt').write_text('work')\n")
+    stub.chmod(0o755)
+    monkeypatch.setenv("PI_BIN", str(stub))
+    night = nightrun.NightRun(root, "pi", None, 1, False, 120)
+    night.run()
+    log = subprocess.run(
+        ["git", "-C", str(target), "log", "--format=%an %s", "wo/aaa1111"],
+        capture_output=True, text=True).stdout
+    assert "Work Bot" in log
+    show = subprocess.run(
+        ["git", "-C", str(target), "show", "--name-only", "wo/aaa1111"],
+        capture_output=True, text=True).stdout
+    assert "night_work.txt" in show
+    order_text = (root / "work-orders" / "aaa1111-demo.md").read_text()
+    assert "status: review" in order_text
+    committed = subprocess.run(
+        ["git", "-C", str(root), "show", "--name-only", "--format="],
+        capture_output=True, text=True).stdout
+    assert "work-orders/aaa1111-demo.md" in committed

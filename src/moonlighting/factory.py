@@ -22,6 +22,7 @@ import re
 import signal
 import subprocess
 import time
+import tomllib
 import uuid
 from datetime import date, datetime
 from pathlib import Path
@@ -40,6 +41,34 @@ def die(msg: str, code: int = 1) -> NoReturn:
     raise FactoryError(msg, code)
 
 
+CONFIG_ENV = "MOONLIGHTING_CONFIG"
+
+
+def config_path() -> Path:
+    override = os.environ.get(CONFIG_ENV)
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".config" / "moonlighting" / "config.toml"
+
+
+def load_config() -> dict:
+    """Read the user config as a dict of sections. A missing file means an
+    empty config: every setting falls back to built-in defaults."""
+    path = config_path()
+    if not path.is_file():
+        return {}
+    with path.open("rb") as f:
+        return tomllib.load(f)
+
+
+def factory_setting(key: str) -> str:
+    return load_config().get("factory", {}).get(key, "")
+
+
+def repo_binding(value: str) -> dict:
+    return load_config().get("repo", {}).get(value, {})
+
+
 # ----------------------------------------------------------- repo plumbing
 
 
@@ -55,10 +84,10 @@ def repo_root() -> Path:
 
 
 def orders_dir(root: Path) -> Path:
-    """Work orders are input, not factory source. The directory lives
-    outside git by default. Point it elsewhere with FACTORY_ORDERS_DIR
-    (absolute, or relative to the factory root)."""
-    override = os.environ.get("FACTORY_ORDERS_DIR")
+    """Work orders live in <root>/work-orders and are tracked in the
+    factory repo. Point elsewhere with FACTORY_ORDERS_DIR (absolute, or
+    relative to the factory root); tracking there is then up to you."""
+    override = os.environ.get("FACTORY_ORDERS_DIR") or factory_setting("orders-dir")
     if not override:
         return root / "work-orders"
     p = Path(override).expanduser()
@@ -67,9 +96,11 @@ def orders_dir(root: Path) -> Path:
     return p
 
 
-def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+def git(cwd: Path, *args: str, check: bool = True,
+        env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+    run_env = {**os.environ, **env} if env else None
     r = subprocess.run(["git", *args], cwd=cwd, text=True,
-                       capture_output=True, check=False)
+                       capture_output=True, check=False, env=run_env)
     if check and r.returncode != 0:
         die(f"git {' '.join(args)} failed: {(r.stderr or r.stdout).strip()}")
     return r
@@ -78,15 +109,17 @@ def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProces
 def run_under_timeout(argv: list[str], cwd: Path, timeout_secs: int,
                       out_path: Path, err_path: Path,
                       input_text: str | None = None,
-                      not_found_hint: str = "") -> int:
+                      not_found_hint: str = "",
+                      env_extra: dict[str, str] | None = None) -> int:
     """Run argv with output redirected to out_path and err_path. Feed
     input_text on stdin. On timeout, kill the whole process group, so
     engine children cannot outlive the run. Returns the exit code, 124 on
     timeout."""
     try:
+        run_env = {**os.environ, **env_extra} if env_extra else None
         with out_path.open("w") as out, err_path.open("w") as err:
             proc = subprocess.Popen(
-                argv, cwd=cwd, stdout=out, stderr=err,
+                argv, cwd=cwd, stdout=out, stderr=err, env=run_env,
                 stdin=(subprocess.PIPE if input_text is not None
                        else subprocess.DEVNULL),
                 start_new_session=True)
@@ -442,9 +475,11 @@ class TargetRepo:
     """A resolved target repository: the factory itself, a local path, or a
     URL clone living under <factory>/repos/."""
 
-    def __init__(self, path: Path, root: Path | None = None):
+    def __init__(self, path: Path, root: Path | None = None,
+                 profile_name: str = ""):
         self.path = path
         self.root = root or path
+        self.profile_name = profile_name
 
     @classmethod
     def resolve(cls, root: Path, repo_value: str | None,
@@ -455,6 +490,7 @@ class TargetRepo:
         if not repo_value or repo_value == "self":
             return cls(root, root)
         repos_dir = root / "repos"
+        prof = repo_binding(repo_value).get("profile", "")
         if is_repo_url(repo_value):
             name = repo_value.rstrip("/").split("/")[-1].removesuffix(".git")
             target = repos_dir / name
@@ -472,7 +508,7 @@ class TargetRepo:
                 if update:
                     git(root, "-C", str(target),
                         "fetch", "--quiet", "--all", "--prune")
-                return cls(target, root)
+                return cls(target, root, profile_name=prof)
             if not update:
                 return None
             repos_dir.mkdir(parents=True, exist_ok=True)
@@ -482,7 +518,20 @@ class TargetRepo:
                 if soft:
                     return None
                 die(f"clone failed: {r.stderr.strip()}")
-            return cls(target, root)
+            return cls(target, root, profile_name=prof)
+        binding = repo_binding(repo_value)
+        if binding.get("path"):
+            bp = Path(binding["path"]).expanduser()
+            if not bp.is_absolute():
+                bp = root / bp
+            bp = bp.resolve()
+            if subprocess.run(["git", "-C", str(bp), "rev-parse", "--git-dir"],
+                              capture_output=True).returncode != 0:
+                if soft:
+                    return None
+                die(f"repo '{repo_value}' points at {bp}, "
+                    f"which is not a git repository")
+            return cls(bp, root, profile_name=binding.get("profile", ""))
         p = Path(repo_value).expanduser()
         if not p.is_absolute():
             p = root / p
@@ -492,7 +541,7 @@ class TargetRepo:
             if soft:
                 return None
             die(f"repo is not a git repository: {p}")
-        return cls(p, root)
+        return cls(p, root, profile_name=repo_binding(repo_value).get("profile", ""))
 
     def display(self) -> str:
         if self.path == self.root:
@@ -504,6 +553,31 @@ class TargetRepo:
 
     def slug(self) -> str:
         return repo_slug(self.path)
+
+    def env(self) -> dict[str, str]:
+        """Process env for git work on this repo. The bound profile gives
+        identity, an ssh key and a gh token. Missing parts change nothing."""
+        extra: dict[str, str] = {}
+        prof = load_config().get("profile", {}).get(self.profile_name, {})
+        if not prof:
+            return extra
+        if prof.get("name"):
+            extra["GIT_AUTHOR_NAME"] = prof["name"]
+            extra["GIT_COMMITTER_NAME"] = prof["name"]
+        if prof.get("email"):
+            extra["GIT_AUTHOR_EMAIL"] = prof["email"]
+            extra["GIT_COMMITTER_EMAIL"] = prof["email"]
+        if prof.get("ssh-key"):
+            key = Path(prof["ssh-key"]).expanduser()
+            extra["GIT_SSH_COMMAND"] = f"ssh -i {key} -o IdentitiesOnly=yes"
+        if prof.get("gh-account"):
+            r = subprocess.run(
+                ["gh", "auth", "token", "--user", prof["gh-account"]],
+                capture_output=True, text=True, check=False)
+            token = r.stdout.strip()
+            if r.returncode == 0 and token:
+                extra["GH_TOKEN"] = token
+        return extra
 
     def is_dirty(self) -> bool:
         return git_out(self.path, "status", "--porcelain") != ""

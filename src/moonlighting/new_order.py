@@ -5,8 +5,8 @@
     moonlighting new-order "Error contract" --repo ~/repos/lark
 
 Generates a unique sha id, slugs the title into the filename, and fills
-the frontmatter. Orders live outside git: the file lands in the orders
-directory (default work-orders/, see FACTORY_ORDERS_DIR).
+the frontmatter. The order lands in the orders directory. The default
+location is tracked in the factory repo, and FACTORY_ORDERS_DIR moves it.
 """
 
 from __future__ import annotations

@@ -5,8 +5,8 @@
 > still pending. Engines now: pi, claude and opencode. The factory is a uv
 > project with a pytest suite (`uv run pytest`). Version 0.1.0 ships on
 > PyPI as `moonlighting-factory`: one binary, `moonlighting`, with a
-> subcommand per workflow. Orders carry 7-char sha ids and live as
-> untracked input in `work-orders/`.
+> subcommand per workflow. Orders carry 7-char sha ids and live tracked in
+> `work-orders/` in the factory repo.
 
 A software factory where **humans work the day shift** (deciding) and **agents work the night shift** (doing). Built on [pi](https://pi.dev), Claude Code and opencode as the night-shift workforce.
 

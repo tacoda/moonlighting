@@ -39,10 +39,18 @@ uv runs everything under the hood. Commands work through
 `uv run moonlighting ...` inside a factory checkout, or globally after
 `uv tool install moonlighting-factory`.
 
+## Config
+
+Per-user defaults live in `~/.config/moonlighting/config.toml`. Move it with
+`MOONLIGHTING_CONFIG`. The file sets the engine, models and orders directory,
+and binds repo names to paths and identities. Precedence: flags beat env vars
+beat the config file. A commented sample lives at
+[`docs/config-sample.toml`](docs/config-sample.toml).
+
 ## Layout
 
 ```text
-work-orders/            order files (input, gitignored; FACTORY_ORDERS_DIR relocates it)
+work-orders/            order files (tracked in the factory repo; FACTORY_ORDERS_DIR relocates it)
 night-shift/NIGHT-SHIFT.md   the night agent's operating manual
 night-shift/QA-SHIFT.md      the QA pre-shift reviewer's manual
 night-shift/logs/       run reports, QA packets, event streams, morning digest (append-only)
@@ -65,9 +73,9 @@ AGENTS.md               standing instructions for any agent in this repo
 
 - The night shift executes only `approved` orders, each on its own branch (`wo/<id>`).
 - Only the day shift merges code into `main` (squash, via `moonlighting accept ID`).
-  Night bookkeeping (run logs) commits straight to `main` — but never contains code.
-  The factory treats order files as input: gitignored, relocatable via
-  `FACTORY_ORDERS_DIR`.
+  Night bookkeeping (order files, run logs) commits straight to `main` — but
+  never contains code. Order files live in `work-orders/`, tracked.
+  `FACTORY_ORDERS_DIR` relocates them.
 - A blocked or ambiguous order stops the agent. It asks; it never guesses.
 - The night shift produces **options, not answers**: when the problem is
   unknown, an order asks for variants, and the day shift decides among them.

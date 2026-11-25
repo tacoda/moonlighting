@@ -94,11 +94,13 @@ def main() -> None:
     qa_model_part = f" --qa-model '{args.qa_model}'" if args.qa_model else ""
     orders_env = os.environ.get("FACTORY_ORDERS_DIR")
     orders_part = f" FACTORY_ORDERS_DIR='{orders_env}'" if orders_env else ""
+    cfg_env = os.environ.get("MOONLIGHTING_CONFIG")
+    cfg_part = f" MOONLIGHTING_CONFIG='{cfg_env}'" if cfg_env else ""
     uv = shutil.which("uv")
     if not uv:
         factory.die("uv not found on PATH (install https://docs.astral.sh/uv)")
     entry = (f"{minute} {hour} * * * cd '{root}' "
-             f"&&{orders_part} {bin_var}='{os.path.abspath(bin_val)}' "
+             f"&&{orders_part}{cfg_part} {bin_var}='{os.path.abspath(bin_val)}' "
              f"'{uv}' run moonlighting night --engine {engine}"
              f"{model_part}{qa_model_part} "
              f"--max-orders {args.max_orders} "

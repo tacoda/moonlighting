@@ -17,10 +17,13 @@
    from a checkout with `uv run moonlighting ...` after `uv sync`.
 5. Make an initial commit: the night runner needs a clean tree on `main` with
    at least one commit.
-6. Orders are input, not source: they live in the gitignored `work-orders/`
-   directory by default. Set `FACTORY_ORDERS_DIR` to point somewhere else.
-7. Smoke-test: `moonlighting night --dry-run`
-8. When you trust the loop, let nights start themselves:
+6. Orders live in `work-orders/`, tracked in the factory repo. Set
+   `FACTORY_ORDERS_DIR` to point somewhere else.
+7. Per-user config: `~/.config/moonlighting/config.toml` sets defaults for
+   engine, models and orders dir, and binds repos to paths and identities.
+   Sample: `docs/config-sample.toml`.
+8. Smoke-test: `moonlighting night --dry-run`
+9. When you trust the loop, let nights start themselves:
    `moonlighting schedule install [--engine pi|claude|opencode]`
    (fires nightly at 00:01, harmlessly no-ops on an empty queue, `remove`
    undoes it, `status` shows the entry).
@@ -125,8 +128,8 @@
   target repo's main.
 - Agents never edit `work-orders/`; the runner appends reports and flips
   statuses.
-- The factory treats order files as input, not source: gitignored,
-  relocatable via `FACTORY_ORDERS_DIR` (default `work-orders/`).
+- The factory tracks order files in `work-orders/`. `FACTORY_ORDERS_DIR`
+  relocates them (tracking there is then your setup's job).
 - Logs are append-only. They are the factory's memory; never delete them.
   `day-shift/rotate-logs.py --days 90 --write` gzips old files into
   `logs/archive/` without losing content.

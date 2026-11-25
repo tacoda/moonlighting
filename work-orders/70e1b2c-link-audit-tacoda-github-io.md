@@ -1,0 +1,99 @@
+---
+id: 70e1b2c
+title: Link audit and repair for tacoda.github.io
+status: done
+created: 2026-11-22
+branch: wo/70e1b2c
+repo: /home/linuxuser/repos/tacoda.github.io
+---
+
+## Goal
+
+Every internal link on the site resolves to a real page. Deliver a
+re-runnable link checker plus the safe repairs; anything ambiguous becomes a
+question for the day shift, never a guess.
+
+## Tasks
+
+- Build `tools/check-links.py`: scan every `index.html` (all essay
+  directories, plus root `index.html` and `404.html`), extract `href` and
+  `src` targets, and resolve each against the **repo root** — this site
+  deploys at its domain root, so `/factory/` means `<repo>/factory/index.html`
+  or `<repo>/factory/`. Skip external (`http(s)`, `mailto:`), fragment-only
+  (`#...`), and JavaScript template text like `${p.href}`.
+- Run it and repair what is genuinely fixable: a typo'd slug, a link to a
+  renamed directory, a wrong extension.
+- For targets that don't exist and shouldn't be invented (scout pass
+  suspects: `/resources`, `/about`, `/projects`, `/ghola/`, `/gauge/`,
+  `/keystone/`, `/open-refinery/`): do NOT create pages or point links
+  elsewhere. List each in the report with the count of referring pages and a
+  one-line recommendation per target (create it / remove the links / point
+  at an existing page — which one).
+
+## Constraints
+
+- Checker: plain Python 3 stdlib, single file, no dependencies.
+- Only repairs to `href`/`src` attribute values plus the new `tools/` file.
+  No prose edits, no reformatting, no redesign, no new pages.
+- The target repo works on its `main` branch conventions — read its README
+  before committing there.
+
+## Acceptance criteria
+
+- `python3 tools/check-links.py` runs, exits 0 when no broken internal links
+  remain, exits 1 with a per-page list otherwise.
+- Every repair changes only a `href`/`src` value (verifiable in the diff).
+- The report enumerates all remaining broken targets with referring-page
+  counts and a recommendation each.
+
+## Night shift log
+
+(runner appends reports here)
+
+## Day shift decisions
+
+(humans decide here)
+
+### 2026-11-22 04:40 — night run (engine pi, target /home/linuxuser/repos/tacoda.github.io), exit 0 (233s)
+
+Work complete and committed (`b290c54` on `wo/002`, tree clean). Final report:
+
+---
+
+## 1. Status
+
+**DONE** — checker built and verified; **zero HTML repairs were warranted** (no typos, renames, or wrong extensions exist); all seven unresolved targets are on the order's do-not-invent list and are enumerated below with recommendations. The checker currently exits 1 because those seven remain — that is the honest state pending day-shift decisions.
+
+## 2. What I did
+
+- Built `tools/check-links.py` (Python 3 stdlib, single file): scans root `index.html`, `404.html`, and every `*/index.html`; extracts `href`/`src` via `html.parser`; resolves absolute paths against the repo root (GH Pages semantics: `/factory/` → `factory/index.html`, files exactly, directories via their `index.html`); skips any URI scheme, fragment-only values, and `${...}` template text like `${p.href}`. Relative values resolve against the page's own directory (correct URL semantics — the only relative ref, `ian1.png` on root, resolves).
+- Audited every internal target. All 38 pages' links resolve **except the seven suspects**. None is a misspelling/renaming/extension-error of an existing page, so per the order I made no edits and invented no pages.
+- Key discovery for the day shift: root `index.html` is a mini-SPA. `/about`, `/projects`, `/resources` are client-side routes — deep links work in production via `404.html` stashing the path and bouncing to `/`, where `history.replaceState` restores the view. But `/ghola/`, `/gauge/`, `/keystone/`, `/open-refinery/` are **not** router routes: a deep link to them lands on the SPA's own "route doesn't exist" view.
+
+## 3. Files changed
+
+- `tools/check-links.py` (new, 147 lines) — the only change; `git diff main --stat` confirms nothing else touched.
+
+## 4. How I verified
+
+- `python3 tools/check-links.py` → per-page list + per-target referral counts, **exit 1** (broken links remain), scanning 38 pages: root, 404, 36 essays. Counts cross-checked against an independent `grep` survey — identical.
+- Exit-0 path verified on a scratch fixture with clean links (plus skip cases exercised: `https:`, `mailto:`, `#frag`, `${p.href}`, `/factory/#anchor`, extensionless dir, relative `src`) → "OK: 3 pages scanned, no broken internal links.", **exit 0**; then appended a dead link → **exit 1**.
+- Typo sweep: programmatically checked every internal target against the directory/file tree — only the seven suspects miss; no near-miss slugs (e.g., `harness`/`pi-harness`/`iii-harness`/`migration-harness` all exist and are linked correctly).
+- Acceptance criteria: tool runs with correct exit semantics ✔; "every repair changes only href/src" — vacuously true, no repairs, diff is tools-only ✔; report enumerates all remaining targets with counts + recommendations ✔ (below).
+
+## 5. Questions / follow-ups — remaining broken targets for day shift
+
+| Target | Refs (pages) | One-line recommendation |
+|---|---|---|
+| `/resources` | 38 (37 pages) | Works in production today as an SPA route (404-bounce); every essay's back-link crumb points here — **keep**: either teach the checker an allowlist for SPA routes or publish a static `/resources/index.html`, but do not remove 38 back-links. |
+| `/about` | 3 (1 page: root nav) | Same SPA-route mechanism as `/resources` and healthy in production — **keep**; fold into the same allowlist/static-fallback decision. |
+| `/projects` | 3 (1 page: root nav) | Same as `/about` — **keep**; one decision covers all three routes. |
+| `/ghola/` | 4 (iii-nanoservices ×3, tools-of-the-trade ×1) | Genuinely broken at runtime (SPA 404 view) — **create the page** (iii-nanoservices calls it a shipped starter kit) or repoint the essay links at `/projects`. |
+| `/keystone/` | 1 (tools-of-the-trade) | Genuinely broken — **create the page** or repoint to `/projects`. |
+| `/gauge/` | 1 (tools-of-the-trade) | Genuinely broken — **create the page** or repoint to `/projects`. |
+| `/open-refinery/` | 1 (tools-of-the-trade) | Genuinely broken — **create the page** or repoint to `/projects`. |
+
+Also noticed, deliberately not touched:
+- The homepage JS `aiProjects`/`rubyProjects` arrays advertise **eight** project pages (`/keystone/`, `/open-refinery/`, `/sigma/`, `/ghola/`, `/gauge/`, `/caml/`, `/otto/`, `/reins/`) — none exist as files or routes, so all eight project cards currently dead-end on the SPA 404 view. Out of checker scope (JS data, and the order says skip `${...}` renders), but the four suspects above are a symptom of this larger gap.
+- The SPA deep-link bounce returns HTTP 404 to crawlers/link-previewers (the page renders client-side afterward) — worth knowing before doubling down on SPA routes.
+- If day shift chooses to accept the three SPA routes as permanent, say the word and I'll add an `--allow` flag to the checker so it can exit 0 without new pages.

@@ -25,6 +25,7 @@ def main() -> None:
     if order.status != "review":
         factory.die(f"{oid} is '{order.status}', not 'review' — decide "
                     f"blocked/draft orders in the order file first")
+    tracks_orders = factory.orders_dir(root) == root / "work-orders"
 
     repo = factory.TargetRepo.resolve(root, order.repo_value)
     if repo is None:
@@ -49,6 +50,7 @@ def main() -> None:
 
     title = order.title or oid
     commit_msg = f"wo-{oid}: {title} (night shift; accepted by day shift)"
+    env = repo.env()
 
     if repo.current_branch() == base:
         # The target sits on main, so the merge happens in place. The human
@@ -70,8 +72,12 @@ def main() -> None:
         else:
             # the work commits in the target repo (squash only stages it)
             factory.git(repo.path, "add", "-A")
-            factory.git(repo.path, "commit", "-q", "-m", commit_msg)
+            factory.git(repo.path, "commit", "-q", "-m", commit_msg, env=env)
             order.set_status("done")
+            if tracks_orders:
+                factory.git(root, "add", str(order.rel))
+                factory.git(root, "commit", "-q", "-m",
+                            f"wo-{oid}: mark done")
     else:
         # The target sits on another branch. Merge in a throwaway worktree
         # at main, so the human's checkout stays exactly where it is.
@@ -85,11 +91,14 @@ def main() -> None:
                     factory.die("squash-merge conflicts — merge by hand when "
                                 f"ready: git -C {t_display} merge --squash {branch}")
                 factory.git(wt, "add", "-A")
-                factory.git(wt, "commit", "-q", "-m", commit_msg)
+                factory.git(wt, "commit", "-q", "-m", commit_msg, env=env)
             finally:
                 factory.git(repo.path, "worktree", "remove", "--force",
                             str(wt), check=False)
         order.set_status("done")
+        if tracks_orders:
+            factory.git(root, "add", str(order.rel))
+            factory.git(root, "commit", "-q", "-m", f"wo-{oid}: mark done")
 
     print(f"accepted wo-{oid}: squash-merged {branch} into {base} in {t_display} "
           f"({ahead} commit(s)); order -> done")

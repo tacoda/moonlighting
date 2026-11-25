@@ -1,0 +1,35 @@
+# moonlighting user config
+# Default location: ~/.config/moonlighting/config.toml
+# Override the location with MOONLIGHTING_CONFIG.
+# Precedence: command flags beat env vars beat this file.
+
+[factory]
+engine = "pi"          # pi, claude or opencode
+model = ""             # optional, engine-specific syntax, passed verbatim
+qa-model = ""          # optional, empty means the order model
+orders-dir = ""        # optional, empty means <factory root>/work-orders
+
+# A profile gives one identity for night work on bound repos.
+# gh-account must exist in `gh auth status`. ssh-key is optional.
+
+[profile.personal]
+name = "tacoda"
+email = "tacoda@users.noreply.github.com"
+gh-account = "tacoda"
+ssh-key = ""
+
+[profile.work]
+name = "T. Coda"
+email = "t.coda@work.example"
+gh-account = "tacoda-work"
+ssh-key = "~/.ssh/id_work"
+
+# Bind repos by the name you write in an order's repo: field.
+
+[repo.tacoda.github.io]
+path = "~/tacoda/tacoda.github.io"
+profile = "personal"
+
+[repo.keystone]
+path = "~/repos/keystone"
+profile = "work"

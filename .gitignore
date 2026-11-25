@@ -5,8 +5,6 @@ __pycache__/
 dist/
 repos/*
 !repos/.gitkeep
-work-orders/*
-!work-orders/.gitkeep
 night-shift/logs/errors.log
 night-shift/locks/*
 !night-shift/locks/.gitkeep
