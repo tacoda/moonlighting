@@ -54,6 +54,19 @@ def repo_root() -> Path:
     return Path(out)
 
 
+def orders_dir(root: Path) -> Path:
+    """Work orders are input, not factory source. The directory lives
+    outside git by default. Point it elsewhere with FACTORY_ORDERS_DIR
+    (absolute, or relative to the factory root)."""
+    override = os.environ.get("FACTORY_ORDERS_DIR")
+    if not override:
+        return root / "work-orders"
+    p = Path(override).expanduser()
+    if not p.is_absolute():
+        p = root / p
+    return p
+
+
 def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     r = subprocess.run(["git", *args], cwd=cwd, text=True,
                        capture_output=True, check=False)
@@ -116,12 +129,15 @@ def parse_order(path: Path) -> dict[str, str]:
 
 
 def set_status(path: Path, new_status: str) -> None:
-    """Rewrite the status line — but only inside the frontmatter."""
+    """Rewrite the status line, but only inside the frontmatter. Body
+    horizontal rules never reopen the frontmatter."""
     lines = path.read_text().splitlines()
+    fence_count = 0
     in_fm = False
     for i, line in enumerate(lines):
         if line.strip() == "---":
-            in_fm = not in_fm
+            fence_count += 1
+            in_fm = fence_count == 1
             continue
         if in_fm and line.startswith("status:"):
             lines[i] = f"status: {new_status}"

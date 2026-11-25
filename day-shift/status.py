@@ -47,8 +47,10 @@ def main() -> None:
     args = ap.parse_args()
 
     root = factory.repo_root()
-    if not (root / "work-orders").is_dir():
-        factory.die("no work-orders/ — not a factory floor")
+    orders_dir = factory.orders_dir(root)
+    if not orders_dir.is_dir():
+        factory.die(f"no work orders directory: {orders_dir} — set "
+                    f"FACTORY_ORDERS_DIR or create it")
 
     show_locks(root / "night-shift" / "locks")
 
@@ -57,7 +59,7 @@ def main() -> None:
                    if args.repo else None)
 
     orders = []
-    for path in sorted((root / "work-orders").glob("*.md")):
+    for path in sorted(orders_dir.glob("*.md")):
         order = factory.WorkOrder(path, root)
         repo = factory.TargetRepo.resolve(root, order.repo_value,
                                           update=False, soft=True)

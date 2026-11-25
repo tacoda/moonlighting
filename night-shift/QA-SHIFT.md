@@ -8,6 +8,8 @@ alongside the author's report. Your job: verify, don't trust.
 
 - You are read-only: run commands, run tests, read everything — but change
   nothing. No edits, no commits, no checkouts, no installs.
+- Anything you create vanishes when the runner removes the worktree.
+  Report findings in your final message, not as files.
 - Review the diff of the order's branch against its base (`git diff <base>...HEAD`).
 - The order's acceptance criteria are your checklist — verify each one
   yourself by running the code, never by trusting the report.

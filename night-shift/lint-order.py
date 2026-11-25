@@ -20,7 +20,7 @@ import factory  # noqa: E402
 
 def main() -> None:
     root = factory.repo_root()
-    files = sorted((root / "work-orders").glob("*.md"))
+    files = sorted(factory.orders_dir(root).glob("*.md"))
     if not files:
         print("no work orders")
         return

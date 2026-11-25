@@ -128,9 +128,9 @@ The loop proved out. Pulled forward and shipped:
 
 Still open:
 
-- [ ] **Skills** for recurring job types ("add a CLI command", "write a migration") loaded via `pi --skill`
-- [ ] **Prompt templates** for authoring work orders consistently
-- [ ] **Morning report** — push the night's verdicts to the day shift (email/messenger digest), so mornings start with the packets instead of a reminder to run `status.py`
+- [ ] **Skills** for recurring job types ("add a CLI command", "write a migration") loaded via `pi --skill`. Deferred until real nights show the recurring job types
+- [ ] **Prompt templates** for authoring work orders consistently. Deferred until the order format settles
+- [x] **Morning report** — the night writes `logs/YYYY-MM-DD-morning.md` with review and blocked orders and their latest QA verdicts
 
 ## Scope discipline (what "minimal" means)
 

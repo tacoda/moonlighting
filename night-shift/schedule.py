@@ -58,6 +58,9 @@ def main() -> None:
     inst.add_argument("--model", default=os.environ.get("FACTORY_MODEL"),
                       help="model string for the engine, passed verbatim "
                            "(host-specific syntax). env FACTORY_MODEL")
+    inst.add_argument("--qa-model", default=os.environ.get("FACTORY_QA_MODEL"),
+                      help="model for the QA pass. Falls back to the order "
+                           "model. env FACTORY_QA_MODEL")
     sub.add_parser("remove", help="remove the nightly entry")
     sub.add_parser("status", help="show the nightly entry, if any")
     args = ap.parse_args()
@@ -90,10 +93,13 @@ def main() -> None:
     if not bin_val:
         factory.die(f"{engine} not found on PATH (set {bin_var})")
     model_part = f" --model '{args.model}'" if args.model else ""
+    qa_model_part = f" --qa-model '{args.qa_model}'" if args.qa_model else ""
+    orders_env = os.environ.get("FACTORY_ORDERS_DIR")
+    orders_part = f" FACTORY_ORDERS_DIR='{orders_env}'" if orders_env else ""
     entry = (f"{minute} {hour} * * * cd '{root}' "
-             f"&& {bin_var}='{os.path.abspath(bin_val)}' "
+             f"&&{orders_part} {bin_var}='{os.path.abspath(bin_val)}' "
              f"{sys.executable} night-shift/run.py --engine {engine}"
-             f"{model_part} "
+             f"{model_part}{qa_model_part} "
              f"--max-orders {args.max_orders} "
              f">> night-shift/logs/cron.log 2>&1 {TAG}")
 

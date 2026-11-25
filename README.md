@@ -34,19 +34,20 @@ and the morning starts with another:
 ## Layout
 
 ```
-work-orders/            one markdown file per unit of work (NNN-title.md)
+work-orders/            order files (input, gitignored; FACTORY_ORDERS_DIR relocates it)
 night-shift/run.py      the night runner (headless pi, claude or opencode)
 night-shift/NIGHT-SHIFT.md   the night agent's operating manual
 night-shift/QA-SHIFT.md      the QA pre-shift reviewer's manual
 night-shift/lint-order.py    validate work orders before spending tokens
 night-shift/schedule.py      install/remove the nightly cron entry
-night-shift/logs/       run reports, QA packets, raw agent event streams (append-only)
+night-shift/logs/       run reports, QA packets, event streams, morning digest (append-only)
 night-shift/sessions.json   engine session ids per order (claude and opencode engines)
 night-shift/locks/      run locks (gitignored)
 night-shift/worktrees/  per-run worktrees of target repos (gitignored, removed after each run)
 repos/                  target repos cloned from git URLs (gitignored)
 day-shift/status.py     factory floor report
 day-shift/accept.py     squash-merge a reviewed order into its target repo
+day-shift/rotate-logs.py    gzip old night logs into logs/archive/ (never deletes)
 factory.py              shared helpers for the factory scripts
 docs/work-order-template.md  how orders are written
 docs/runbook.md         shift checklists (morning, handover, forensics)
@@ -61,7 +62,9 @@ AGENTS.md               standing instructions for any agent in this repo
 
 - The night shift executes only `approved` orders, each on its own branch (`wo/NNN`).
 - Only the day shift merges code into `main` (squash, via `day-shift/accept.py`).
-  Night bookkeeping (status flips, run logs) commits straight to `main` — but never contains code.
+  Night bookkeeping (run logs) commits straight to `main` — but never contains code.
+  The factory treats order files as input: gitignored, relocatable via
+  `FACTORY_ORDERS_DIR`.
 - A blocked or ambiguous order stops the agent. It asks; it never guesses.
 - The night shift produces **options, not answers**: when the problem is
   unknown, an order asks for variants, and the day shift decides among them.
@@ -89,6 +92,9 @@ Set the model in three places, most specific first: a `model:` field,
 `--model` (or `FACTORY_MODEL`), or the host default. The string passes
 verbatim to the selected engine. Write it in that engine's syntax from the
 table. Each run header records the model that ran.
+
+The QA pass can run its own model. Use `--qa-model` (or env
+`FACTORY_QA_MODEL`). Without it, QA uses the order model.
 
 Every run is double-checked by default:
 

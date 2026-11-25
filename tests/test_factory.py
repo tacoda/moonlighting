@@ -3,6 +3,7 @@
 Run with: uv run pytest
 """
 
+import gzip
 import importlib.util
 import os
 import subprocess
@@ -538,7 +539,7 @@ def test_preflight_failure_lands_in_errors_log(tmp_path):
                        capture_output=True, text=True)
     assert r.returncode == 1
     log = floor / "night-shift" / "logs" / "errors.log"
-    assert "no work-orders" in log.read_text()
+    assert "work orders directory" in log.read_text()
 
 
 def test_workorder_model_field(tmp_path):
@@ -552,3 +553,61 @@ def test_lint_rejects_model_with_whitespace(tmp_path):
     text = ORDER.replace("---\n", "---\nmodel: claude opus\n", 1)
     problems = make_order(tmp_path, text).lint()
     assert any("model" in p for p in problems)
+
+
+def test_orders_dir_env_override(tmp_path, monkeypatch):
+    assert factory.orders_dir(tmp_path) == tmp_path / "work-orders"
+    monkeypatch.setenv("FACTORY_ORDERS_DIR", str(tmp_path / "inbox"))
+    assert factory.orders_dir(tmp_path) == tmp_path / "inbox"
+    monkeypatch.setenv("FACTORY_ORDERS_DIR", "inbox2")
+    assert factory.orders_dir(tmp_path) == tmp_path / "inbox2"
+
+
+def test_night_timeout_guard(tmp_path):
+    script = Path(__file__).resolve().parents[1] / "night-shift" / "run.py"
+    floor = make_git_repo(tmp_path / "floor")
+    env = dict(os.environ, NIGHT_TIMEOUT_SECS="abc")
+    r = subprocess.run([sys.executable, str(script)], cwd=floor,
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 2
+    assert "must be an integer" in r.stderr
+
+
+def test_morning_digest_lists_review_and_blocked(tmp_path):
+    (tmp_path / "work-orders").mkdir()
+    (tmp_path / "night-shift").mkdir()
+    (tmp_path / "night-shift" / "NIGHT-SHIFT.md").write_text("# manual\n")
+    (tmp_path / "night-shift" / "QA-SHIFT.md").write_text("# qa\n")
+    review = ORDER.replace("status: draft", "status: review")
+    review += ("\n### 04:00 — night run (engine pi), exit 0 (9s)\n\nreport\n\n"
+               "---\n\n### QA pre-shift (engine pi, exit 0)\n\n"
+               "**Verdict** — SHIP\n")
+    (tmp_path / "work-orders" / "001-a.md").write_text(review)
+    blocked = (ORDER.replace("status: draft", "status: blocked")
+               .replace("id: 001", "id: 002"))
+    (tmp_path / "work-orders" / "002-b.md").write_text(blocked)
+    night = nightrun.NightRun(tmp_path, "pi", None, 5, True, 60)
+    night._write_morning_digest()
+    digest = tmp_path / "night-shift" / "logs" / f"{night.today}-morning.md"
+    text = digest.read_text()
+    assert "001" in text and "SHIP" in text
+    assert "002" in text and "blocked" in text
+
+
+def test_rotate_logs_roundtrip(tmp_path):
+    root = make_git_repo(tmp_path / "f")
+    logs = root / "night-shift" / "logs"
+    logs.mkdir(parents=True)
+    old = logs / "2026-01-01-wo-001.out.md"
+    old.write_text("precious report\n")
+    past = time.time() - 86400 * 2
+    os.utime(old, (past, past))
+    script = Path(__file__).resolve().parents[1] / "day-shift" / "rotate-logs.py"
+    r = subprocess.run([sys.executable, str(script), "--days", "1", "--write"],
+                       cwd=root, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert not old.exists()
+    gz = logs / "archive" / "2026-01-01-wo-001.out.md.gz"
+    assert gz.exists()
+    with gzip.open(gz, "rt") as f:
+        assert f.read() == "precious report\n"

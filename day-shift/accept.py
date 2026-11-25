@@ -17,7 +17,7 @@ def main() -> None:
     oid = sys.argv[1]
 
     root = factory.repo_root()
-    matches = sorted((root / "work-orders").glob(f"{oid}*.md"))
+    matches = sorted(factory.orders_dir(root).glob(f"{oid}*.md"))
     if len(matches) != 1:
         factory.die(f"expected exactly one work-orders/{oid}*.md, "
                     f"found {len(matches)}")
@@ -63,18 +63,16 @@ def main() -> None:
             factory.die("squash-merge conflicts — resolve by hand in the target "
                         f"repo, or: git -C {t_display} merge --abort")
         if repo.path == root:
-            # one commit: merged code + order marked done, in the factory's own history
+            # one commit on factory main: the merged code. The order file
+            # is input and stays untracked.
             order.set_status("done")
             factory.git(root, "add", "-A")
             factory.git(root, "commit", "-q", "-m", commit_msg)
         else:
             # the work commits in the target repo (squash only stages it)
-            # the factory records the decision separately
             factory.git(repo.path, "add", "-A")
             factory.git(repo.path, "commit", "-q", "-m", commit_msg)
             order.set_status("done")
-            factory.git(root, "add", str(order.rel))
-            factory.git(root, "commit", "-q", "-m", f"wo-{oid}: mark done (day shift)")
     else:
         # The target sits on another branch. Merge in a throwaway worktree
         # at main, so the human's checkout stays exactly where it is.
@@ -93,8 +91,6 @@ def main() -> None:
                 factory.git(repo.path, "worktree", "remove", "--force",
                             str(wt), check=False)
         order.set_status("done")
-        factory.git(root, "add", str(order.rel))
-        factory.git(root, "commit", "-q", "-m", f"wo-{oid}: mark done (day shift)")
 
     print(f"accepted wo-{oid}: squash-merged {branch} into {base} in {t_display} "
           f"({ahead} commit(s)); order -> done")

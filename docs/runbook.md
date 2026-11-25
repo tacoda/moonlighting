@@ -74,7 +74,8 @@
 
 ## Morning checklist (day shift)
 
-1. `python3 day-shift/status.py` (all repos; filter with `--repo`)
+1. `python3 day-shift/status.py` (all repos, filter with `--repo`). The
+   night also writes `logs/YYYY-MM-DD-morning.md` with the verdicts.
 2. For each `review` order:
    - Read the **QA pre-shift verdict** (SHIP/BLOCK/UNSURE) and the agent's
      report in the order file — the QA packet's criteria table is your
@@ -115,7 +116,11 @@
   target repo's main.
 - Agents never edit `work-orders/`; the runner appends reports and flips
   statuses.
+- The factory treats order files as input, not source: gitignored,
+  relocatable via `FACTORY_ORDERS_DIR` (default `work-orders/`).
 - Logs are append-only. They are the factory's memory; never delete them.
+  `day-shift/rotate-logs.py --days 90 --write` gzips old files into
+  `logs/archive/` without losing content.
 - Change the factory scripts? Run the suite: `uv run pytest`.
 
 ## Night-branch base policy
