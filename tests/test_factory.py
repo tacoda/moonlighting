@@ -326,7 +326,8 @@ def test_status_json_branch_name():
     orders = factory.orders_dir()
     orders.mkdir(parents=True)
     (orders / "aaa1111-d.md").write_text(
-        ORDER.replace("status: draft", "status: review"))
+        ORDER.replace("status: draft", "status: review")
+             .replace("id: a1b2c3d", "id: aaa1111"))
     r = run_module("status", "--json")
     items = json.loads(r.stdout)
     assert items[0]["branch"] == "wo/aaa1111"
