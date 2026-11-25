@@ -736,3 +736,30 @@ def test_approve_script(tmp_path):
     assert r.returncode == 0, r.stderr
     text = (root / "work-orders" / "a1b2c3d-d.md").read_text()
     assert "status: approved" in text
+
+
+def test_remove_deletes_order(tmp_path):
+    root = make_git_repo(tmp_path / "f")
+    wo = root / "work-orders"
+    wo.mkdir()
+    target = wo / "a1b2c3d-old.md"
+    target.write_text(ORDER)
+
+    r = subprocess.run(
+        [sys.executable, "-m", "moonlighting.remove", "a1b2c3d"],
+        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    assert r.returncode == 1
+    assert "refusing to delete" in r.stderr
+    assert target.exists()
+
+    r2 = subprocess.run(
+        [sys.executable, "-m", "moonlighting.remove", "a1b2c3d", "--yes"],
+        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    assert r2.returncode == 0, r2.stderr
+    assert not target.exists()
+
+    r3 = subprocess.run(
+        [sys.executable, "-m", "moonlighting.remove", "zzzzzzz", "--yes"],
+        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    assert r3.returncode == 1
+    assert "found 0" in r3.stderr

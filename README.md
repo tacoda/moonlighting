@@ -26,6 +26,7 @@ moonlighting new-order "Title"      create an order; it asks, then offers to app
 moonlighting status                 see every order: approved, blocked, review, draft, done
 moonlighting approve ID             approve a draft
 moonlighting night                  run the queue (--repo, --engine, --model, --max-orders)
+moonlighting remove ID              delete an order file (a done order's record stays in the logs)
 moonlighting accept ID              merge a reviewed order into its target repo
 moonlighting answer ID "text"       answer a blocked order; it re-approves for tonight
 moonlighting feedback ID "text"     send a review back with feedback; it goes to blocked
