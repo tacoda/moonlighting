@@ -654,8 +654,8 @@ def test_night_process_flips_to_review(tmp_path, monkeypatch, capsys):
                         _R(0))
     monkeypatch.setattr(factory, "git_out", lambda cwd, *a: "2")
     monkeypatch.setattr(nightrun.NightRun, "_agent_pass",
-                        lambda self, argv, cwd, stdin_text=None,
-                        timeout_secs=None, env_extra=None, engine=None:
+                        lambda self, argv, cwd, engine, stdin_text=None,
+                        timeout_secs=None, env_extra=None:
                         (0, '{"events": true}', ""))
     monkeypatch.setattr(nightrun.NightRun, "_qa_pass",
                         lambda self, *a, **k: (0, "", "QA ok", False))
@@ -860,7 +860,7 @@ def test_rotate_logs_roundtrip():
 
 def test_install_cron_global_entry(tmp_path, monkeypatch):
     cfg = tmp_path / "config.toml"
-    cfg.write_text('[factory]\nschedule-at = "17 1"\nschedule-max-orders = 2\n')
+    cfg.write_text('[factory]\nengine = "pi"\nschedule-at = "17 1"\nschedule-max-orders = 2\n')
     monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
     monkeypatch.setattr(schedule, "current_crontab", lambda: "")
     captured = {}
@@ -876,7 +876,10 @@ def test_install_cron_global_entry(tmp_path, monkeypatch):
     assert schedule.TAG in entry
 
 
-def test_install_cron_replaces_old_entry(monkeypatch):
+def test_install_cron_replaces_old_entry(tmp_path, monkeypatch):
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('[factory]\nengine = "pi"\n')
+    monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
     old = ("0 1 * * * '/usr/bin/moonlighting' night --engine pi "
            ">> /old/cron.log 2>&1 " + schedule.TAG)
     monkeypatch.setattr(schedule, "current_crontab",
@@ -1032,8 +1035,8 @@ def test_night_plan_pass_feeds_builder(tmp_path, monkeypatch, capsys):
                         lambda cwd, *a, check=True, env=None: _R(0))
     monkeypatch.setattr(factory, "git_out", lambda cwd, *a: "2")
 
-    def fake_agent_pass(self, argv, cwd, stdin_text=None, timeout_secs=None,
-                        env_extra=None, engine=None):
+    def fake_agent_pass(self, argv, cwd, engine, stdin_text=None,
+                        timeout_secs=None, env_extra=None):
         calls.append(stdin_text)
         if len(calls) == 1:
             return 0, "planner output", ""
@@ -1072,8 +1075,8 @@ def test_night_plan_skipped_without_model(tmp_path, monkeypatch):
                         lambda cwd, *a, check=True, env=None: _R(0))
     monkeypatch.setattr(factory, "git_out", lambda cwd, *a: "2")
     monkeypatch.setattr(nightrun.NightRun, "_agent_pass",
-                        lambda self, argv, cwd, stdin_text=None,
-                        timeout_secs=None, env_extra=None, engine=None:
+                        lambda self, argv, cwd, engine, stdin_text=None,
+                        timeout_secs=None, env_extra=None:
                         calls.append(stdin_text) or (0, "out", ""))
     monkeypatch.setattr(nightrun.NightRun, "_qa_pass",
                         lambda self, *a, **k: (0, "", "QA ok", False))
@@ -1093,8 +1096,8 @@ def test_qa_pass_extracts_with_the_order_engine(tmp_path, monkeypatch):
     monkeypatch.setattr(factory, "git_out", lambda cwd, *a: "abc")
     monkeypatch.setattr(
         nightrun.NightRun, "_agent_pass",
-        lambda self, argv, cwd, stdin_text=None, timeout_secs=None,
-        env_extra=None, engine=None: (0, claude_raw, ""))
+        lambda self, argv, cwd, engine, stdin_text=None,
+        timeout_secs=None, env_extra=None: (0, claude_raw, ""))
     rc, raw, report, moved = night._qa_pass(
         order, wt, branch="wo/x", base="main",
         engine=factory.engine("claude"), engine_name="claude")
@@ -1117,6 +1120,16 @@ def test_reply_parks_review_and_answers_blocked():
     text2 = (orders / "a1b2c3d-r.md").read_text()
     assert "status: approved" in text2
     assert "blocked \u2192 approved: done, go" in text2
+
+
+def test_harness_engine_required(tmp_path):
+    fl = fake_floor()
+    shop = FakeRepo(tmp_path / "shop")
+    order = make_order(tmp_path)
+    night = nightrun.NightRun(fl, None, None, 5, True, 60)
+    with pytest.raises(factory.FactoryError) as excinfo:
+        night._harness_for(order, shop)
+    assert "no engine defined" in str(excinfo.value)
 
 
 def test_schedule_at_validation(tmp_path, monkeypatch):

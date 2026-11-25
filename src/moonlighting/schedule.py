@@ -60,7 +60,10 @@ def install_cron() -> None:
                     "(minute 0-59, hour 0-23)", 2)
 
     engine = (os.environ.get("FACTORY_ENGINE")
-              or factory.factory_setting("engine") or "pi")
+              or factory.factory_setting("engine"))
+    if not engine:
+        factory.die("no engine defined — set engine in [factory] or run "
+                    "with FACTORY_ENGINE")
     bin_var = f"{engine.upper()}_BIN"
     bin_val = os.environ.get(bin_var) or shutil.which(engine)
     if not bin_val:
