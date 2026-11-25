@@ -1,11 +1,11 @@
 # Moonlighting — Plan
 
-> **Status:** Phases 0–2 built and machine-verified with stub engines
-> (both `pi` and `claude` code paths, multi-repo, locks). Pending: the first
-> *real* night run — the loop has not yet executed a live model against a
-> real order. Phase 3 untouched except time budgets.
+> **Status:** Phases 0–2 built and live with pi — four real runs executed
+> end to end (wo-001..004, 2026-11-22). The first `--engine claude` run is
+> still pending. Engines now: pi, claude and opencode. The factory is a uv
+> project with a pytest suite (`uv run pytest`).
 
-A software factory where **humans work the day shift** (deciding) and **agents work the night shift** (doing). Built on [pi](https://pi.dev) as the night-shift workforce.
+A software factory where **humans work the day shift** (deciding) and **agents work the night shift** (doing). Built on [pi](https://pi.dev), Claude Code and opencode as the night-shift workforce.
 
 ## The core idea
 
@@ -88,7 +88,7 @@ One script, one command, end-to-end.
   3. Write a run summary to `night-shift/logs/YYYY-MM-DD.md`
 - [x] `night-shift/NIGHT-SHIFT.md` — the agent's operating manual (in small scope, test before declaring done, never flip status itself, set `blocked` + a question in the log if stuck)
 
-**Done, pending live-fire:** verified end-to-end with stub engines; the first real model run is the final acceptance test.
+**Done:** live with pi — wo-001..004 ran end to end on 2026-11-22. The claude path ran against stub engines only.
 
 ### Phase 2 — The day shift decides  *make the loop a habit*
 
@@ -99,7 +99,7 @@ One script, one command, end-to-end.
   - sets `rejected` with a reason
 - [x] Squash-merge convention: the night agent must never merge; only day shift merges
 
-**Built; the habit starts with the first real cycle** (see status note above).
+**Built. Real cycles started 2026-11-22** (wo-001..004).
 
 ### Phase 3 — Hardening  *once the loop is trusted*
 
@@ -112,7 +112,7 @@ One script, one command, end-to-end.
 - [x] **Scheduling** — `night-shift/schedule.py install|remove|status`; nightly cron, harmlessly no-ops on an empty queue
 - [~] **Budget rails**: per-order time cap done (`NIGHT_TIMEOUT_SECS`, default 7200s → killed and marked blocked); token cap — now unblocked, since usage data lives in the archived event streams (parse, abort, mark blocked)
 - [ ] **Log rotation** — `logs/` and `cron.log` grow forever; rotate or cap someday (small)
-- [ ] **Claude engine live-fire** — implemented and stub-tested; the first real `--engine claude` order is pending (claude CLI not on this box yet)
+- [ ] **Claude engine live-fire** — implemented and stub-tested. The first real `--engine claude` order is still pending.
 - [ ] **Multi-machine locks** — pid locks are machine-local; factories on different machines targeting the same repo won't collide-detect (per-repo clone pattern sidesteps this; revisit only for multi-box setups)
 - [ ] **Secrets framework** — beyond the night manual's “never commit secrets” rule: decide what credentials agents may see, and how
 
@@ -124,6 +124,7 @@ The loop proved out. Pulled forward and shipped:
 - [x] **Multi-repo** — orders name a target repo (`repo:` path or git URL, cloned under `repos/`); day shift merges and pushes target repos themselves
 - [x] **Parallel shifts** — one factory process per repo, each in its own clone, launched concurrently; worktree isolation + locks make it safe (proven live)
 - [x] **Claude Code engine** — same flow, `--engine claude`, sessions tracked per order
+- [x] **opencode engine** — same flow via `--engine opencode`. The host picks the session id (`ses_...`) and the runner keeps it in `night-shift/sessions.json`
 
 Still open:
 

@@ -70,7 +70,17 @@ class NightRun:
                 # run keeps its honesty by stopping rather than skipping
                 queue.append((order, None, problems))
                 continue
-            repo = factory.TargetRepo.resolve(self.root, order.repo_value)
+            repo = factory.TargetRepo.resolve(self.root, order.repo_value,
+                                              soft=True)
+            if repo is None:
+                # soft resolve. The clone failed or the path is not a git
+                # repo. Block this order instead of aborting the night.
+                if self.repo_filter is not None:
+                    continue
+                queue.append((order, None,
+                              ["repo: unresolvable (clone failed or not a "
+                               "git repository)"]))
+                continue
             if self.repo_filter is not None and repo.path != self.repo_filter.path:
                 continue
             queue.append((order, repo, []))
@@ -99,8 +109,9 @@ class NightRun:
         for order, repo, problems in queue:
             if ran >= self.max_orders:
                 break
-            if problems:
-                new_status = self._lint_block(order, problems)
+            if problems or repo is None:
+                new_status = self._lint_block(order, problems
+                                              or ["repo: unresolvable"])
             else:
                 new_status = self._process(order, repo)
             ran += 1
@@ -140,10 +151,12 @@ class NightRun:
                 argv, new_ref = self.engine.build_command(
                     self.system_prompt, prompt, f"wo-{order.id}", ref,
                     json_audit=self.json_audit)
-                if new_ref:
-                    self.sessions.set_ref(f"{self.engine_name}:{order.id}", new_ref)
 
                 rc, raw_events, run_err = self._agent_pass(argv, wt.path)
+                # hosts that pick their own session id (opencode) surface it here
+                new_ref = new_ref or self.engine.ref_from_output(raw_events)
+                if new_ref:
+                    self.sessions.set_ref(f"{self.engine_name}:{order.id}", new_ref)
                 report = (self.engine.extract_report(raw_events)
                           if self.json_audit else raw_events)
                 secs = int(time.monotonic() - started)
@@ -177,7 +190,7 @@ class NightRun:
                 rc = 124
             except FileNotFoundError:
                 factory.die(f"engine executable not found: {self.engine.binary} "
-                            f"(set PI_BIN or CLAUDE_BIN)", 127)
+                            f"(set {self.engine.name.upper()}_BIN)", 127)
             raw = out_path.read_text()
             run_err = err_path.read_text()
         return rc, raw, run_err
@@ -201,10 +214,11 @@ class NightRun:
         argv, new_ref = self.engine.build_command(
             self.qa_system_prompt, prompt, f"qa-{order.id}", ref,
             json_audit=self.json_audit)
-        if new_ref:
-            self.sessions.set_ref(f"{self.engine_name}:qa:{order.id}", new_ref)
         print(f"QA pre-shift reviewing wo-{order.id} ...")
         rc, raw, _ = self._agent_pass(argv, wt_path)
+        new_ref = new_ref or self.engine.ref_from_output(raw)
+        if new_ref:
+            self.sessions.set_ref(f"{self.engine_name}:qa:{order.id}", new_ref)
         report = self.engine.extract_report(raw) if self.json_audit else raw
         print(f"QA pre-shift done (exit {rc})")
         return rc, raw, report
@@ -264,7 +278,7 @@ class NightRun:
                     f"raw: {outfile.relative_to(self.root)}\n")
 
         add_paths = [str(order.rel), "night-shift/logs"]
-        if self.engine_name == "claude":
+        if (self.root / "night-shift" / "sessions.json").exists():
             add_paths.append("night-shift/sessions.json")
         factory.git(self.root, "add", *add_paths)
         factory.git(self.root, "commit", "-q", "-m",

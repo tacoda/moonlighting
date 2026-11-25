@@ -22,6 +22,7 @@ import subprocess
 import uuid
 from datetime import date
 from pathlib import Path
+from typing import NoReturn
 
 
 class FactoryError(Exception):
@@ -32,7 +33,7 @@ class FactoryError(Exception):
         self.code = code
 
 
-def die(msg: str, code: int = 1) -> None:
+def die(msg: str, code: int = 1) -> NoReturn:
     raise FactoryError(msg, code)
 
 
@@ -132,6 +133,11 @@ class Engine:
         """Final assistant text from a raw capture; raw text as fallback."""
         raise NotImplementedError
 
+    def ref_from_output(self, raw: str) -> str | None:
+        """Session ref recovered from a finished pass; None by default.
+        Engines whose host picks the session id (opencode) override this."""
+        return None
+
 
 class PiEngine(Engine):
     name = "pi"
@@ -199,10 +205,58 @@ class ClaudeEngine(Engine):
         return raw
 
 
+class OpenCodeEngine(Engine):
+    name = "opencode"
+    default_binary = "opencode"
+
+    def build_command(self, system_prompt, prompt, session_id,
+                      session_ref, json_audit=True):
+        argv = [self.binary, "run", "--auto", "--archived"]
+        if json_audit:
+            argv += ["--format", "json"]
+        if session_ref:
+            argv += ["--session", session_ref]
+        # opencode has no --append-system-prompt: the manual rides in the message
+        return argv + [f"{system_prompt}\n\n---\n\n{prompt}"], None
+
+    def ref_from_output(self, raw: str) -> str | None:
+        # every JSON event carries the host-chosen sessionID (ses_...)
+        ref = None
+        for line in raw.splitlines():
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            sid = rec.get("sessionID")
+            if isinstance(sid, str) and sid.startswith("ses"):
+                ref = sid
+        return ref
+
+    def extract_report(self, raw: str) -> str:
+        texts = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("type") == "text":
+                text = (rec.get("part") or {}).get("text")
+                if isinstance(text, str):
+                    texts.append(text)
+        text = "".join(texts).strip()
+        return text or raw
+
+
+ENGINES = {"pi": PiEngine, "claude": ClaudeEngine, "opencode": OpenCodeEngine}
+
+
 def engine(name: str) -> Engine:
-    cls = {"pi": PiEngine, "claude": ClaudeEngine}.get(name)
+    cls = ENGINES.get(name)
     if cls is None:
-        die(f"unknown engine: {name} (supported: pi, claude)", 2)
+        die(f"unknown engine: {name} (supported: {', '.join(ENGINES)})", 2)
     return cls()
 
 
@@ -283,10 +337,10 @@ class WorkOrder:
         if branch and re.search(r"\s", branch):
             problems.append(f"branch: '{branch}' contains whitespace")
         repo = self.repo_value
-        if repo and repo != "self" and not is_repo_url(repo):
-            if TargetRepo.resolve(self.root, repo, update=False,
-                                  soft=True) is None:
-                problems.append(f"repo: '{repo}' is not a git repository")
+        if (repo and repo != "self" and not is_repo_url(repo)
+                and TargetRepo.resolve(self.root, repo, update=False,
+                                       soft=True) is None):
+            problems.append(f"repo: '{repo}' is not a git repository")
 
         body: dict[str, list[str]] = {}
         current = None
@@ -299,7 +353,7 @@ class WorkOrder:
                 body[current].append(line)
         for sec in REQUIRED_SECTIONS:
             name = sec[3:]
-            if not [l for l in body.get(name, []) if l.strip()]:
+            if not [line for line in body.get(name, []) if line.strip()]:
                 problems.append(f"section '{name}': missing or empty")
 
         return [f"{self.rel}: {p}" for p in problems]
@@ -318,7 +372,7 @@ class TargetRepo:
 
     @classmethod
     def resolve(cls, root: Path, repo_value: str | None,
-                update: bool = True, soft: bool = False) -> "TargetRepo | None":
+                update: bool = True, soft: bool = False) -> TargetRepo | None:
         """Resolve an order's `repo:` field. None/"self" -> the factory; a
         path -> that working tree; a git URL -> cloned under repos/ and
         refreshed (update=True). soft=True returns None instead of failing."""
@@ -408,7 +462,7 @@ class Worktree:
         self.branch = branch
         self.base = base
 
-    def __enter__(self) -> "Worktree":
+    def __enter__(self) -> Worktree:
         self.repo.prune_worktrees()
         if self.path.exists():
             die(f"worktree path already exists: {self.path} — remove it "
@@ -449,7 +503,7 @@ class Lock:
         self.path = locks_dir / f"{key}.lock"
         self.what = what
 
-    def acquire(self) -> "Lock":
+    def acquire(self) -> Lock:
         while True:
             try:
                 fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -469,7 +523,7 @@ class Lock:
     def release(self) -> None:
         self.path.unlink(missing_ok=True)
 
-    def __enter__(self) -> "Lock":
+    def __enter__(self) -> Lock:
         return self.acquire()
 
     def __exit__(self, *exc) -> None:
@@ -487,11 +541,18 @@ class SessionStore:
         self.path = path
         self._data: dict = {}
         if path.exists():
-            self._data = json.loads(path.read_text())
+            try:
+                self._data = json.loads(path.read_text())
+            except json.JSONDecodeError as e:
+                die(f"corrupt session store: {path} ({e}) — fix or delete "
+                    f"the file before rerunning", 1)
 
     def ref(self, key: str) -> str | None:
         return self._data.get(key)
 
     def set_ref(self, key: str, ref: str) -> None:
         self._data[key] = ref
-        self.path.write_text(json.dumps(self._data, indent=1, sort_keys=True) + "\n")
+        # atomic write: a kill mid-write must not truncate the store
+        tmp = self.path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(self._data, indent=1, sort_keys=True) + "\n")
+        tmp.replace(self.path)

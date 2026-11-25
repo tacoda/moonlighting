@@ -27,6 +27,8 @@ def main() -> None:
                     f"blocked/draft orders in the order file first")
 
     repo = factory.TargetRepo.resolve(root, order.repo_value)
+    if repo is None:
+        factory.die(f"cannot resolve repo '{order.repo_value}' for {oid}")
     branch = order.branch
     t_display = repo.display()
 

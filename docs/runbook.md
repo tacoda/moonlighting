@@ -10,6 +10,7 @@
 
        nwave-ai install --platform pi
        nwave-ai install --platform claude-code
+       nwave-ai install --platform opencode
        nwave-ai mode all
 
 4. Make an initial commit: the night runner needs a clean tree on `main` with
@@ -59,7 +60,7 @@
        python3 night-shift/run.py --repo git@github.com:acme/api.git --engine claude
 
    `--repo` takes a path or URL and only runs that repo's orders; the default
-   works this factory's own queue. Pick the host with `--engine pi|claude`.
+   works this factory's own queue. Pick the host with `--engine pi|claude|opencode`.
 4. `--max-orders N` for a longer night; an order that runs past
    `NIGHT_TIMEOUT_SECS` (default 7200s) is killed and marked blocked.
 5. Locks: a second process on the same repo or the same factory checkout
@@ -94,8 +95,8 @@
 - Full event streams — `night-shift/logs/*.events.jsonl` and `*.qa.jsonl`:
   every tool call, every token, archived. This is the factory's flight
   recorder.
-- Sessions — pi: `pi --session wo-NNN`. claude: `claude --resume <uuid>`,
-  uuid from `night-shift/sessions.json`.
+- Sessions — pi: `pi --session wo-NNN`. claude: `claude --resume <uuid>`.
+  opencode: the id (`ses_...`) from `night-shift/sessions.json`.
 - Worktrees — created per run under `night-shift/worktrees/`, removed when
   the run ends. To poke at a finished night: `git -C <target> diff
   main...wo/NNN`, or `git -C <target> worktree add /tmp/poke wo/NNN`.
@@ -108,6 +109,7 @@
 - Agents never edit `work-orders/`; the runner appends reports and flips
   statuses.
 - Logs are append-only. They are the factory's memory; never delete them.
+- Change the factory scripts? Run the suite: `uv run pytest`.
 
 ## Night-branch base policy
 

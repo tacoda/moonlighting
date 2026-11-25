@@ -1,0 +1,15 @@
+[project]
+name = "moonlighting"
+version = "0.1.0"
+description = "A software factory: people decide by day, agents type by night."
+requires-python = ">=3.9"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false
+
+[tool.ruff.lint.isort]
+known-first-party = ["factory"]

@@ -26,7 +26,7 @@ flowchart TD
         T -->|"yes"| V["lint gate"]
         V -->|"malformed"| W["blocked — no tokens spent\nrun stops"]
         V -->|"clean"| X["throwaway worktree\nbranch wo/NNN from local main"]
-        X --> Y["engine pass\npi or claude, headless"]
+        X --> Y["engine pass\npi, claude or opencode, headless"]
         Y --> Z["QA pre-shift\nSHIP / BLOCK / UNSURE"]
         Z --> AA["bookkeeping on factory main:\nreport + events archived, status → review"]
     end
@@ -43,7 +43,7 @@ sequenceDiagram
     actor H as Day shift (human)
     participant C as cron (01:17)
     participant R as run.py (runner)
-    participant E as Engine (pi / claude)
+    participant E as Engine (pi / claude / opencode)
     participant T as Target repo
 
     H->>H: write order · lint · approve · commit

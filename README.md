@@ -40,7 +40,7 @@ night-shift/QA-SHIFT.md      the QA pre-shift reviewer's manual
 night-shift/lint-order.py    validate work orders before spending tokens
 night-shift/schedule.py      install/remove the nightly cron entry
 night-shift/logs/       run reports, QA packets, raw agent event streams (append-only)
-night-shift/sessions.json   engine session ids per order (claude engine)
+night-shift/sessions.json   engine session ids per order (claude and opencode engines)
 night-shift/locks/      run locks (gitignored)
 night-shift/worktrees/  per-run worktrees of target repos (gitignored, removed after each run)
 repos/                  target repos cloned from git URLs (gitignored)
@@ -51,13 +51,15 @@ docs/work-order-template.md  how orders are written
 docs/runbook.md         shift checklists (morning, handover, forensics)
 docs/flow.md            mermaid diagrams: the day/night work flow
 PLAN.md                 phased roadmap
+tests/                  pytest suite for the factory scripts
+pyproject.toml          uv project (dev dependency: pytest), with uv.lock
 AGENTS.md               standing instructions for any agent in this repo
 ```
 
 ## The rules
 
 - The night shift executes only `approved` orders, each on its own branch (`wo/NNN`).
-- Only the day shift merges code into `main` (squash, via `day-shift/accept.sh`).
+- Only the day shift merges code into `main` (squash, via `day-shift/accept.py`).
   Night bookkeeping (status flips, run logs) commits straight to `main` — but never contains code.
 - A blocked or ambiguous order stops the agent. It asks; it never guesses.
 - The night shift produces **options, not answers**: when the problem is
@@ -70,15 +72,17 @@ AGENTS.md               standing instructions for any agent in this repo
 
 ## Engines
 
-Both hosts run the same work orders through the same flow:
+Three hosts run the same work orders through the same flow:
 
 | engine | headless invocation | sessions |
-|---|---|---|
+| --- | --- | --- |
 | pi (default) | `pi --print` | deterministic: `wo-NNN` |
 | claude | `claude -p` | uuid per order, kept in `night-shift/sessions.json` |
+| opencode | `opencode run` | host picks the id (`ses_...`), kept in `night-shift/sessions.json` |
 
-Pick per run with `--engine` (or `FACTORY_ENGINE`). Both run under the nWave
-tool-call guard (`nwave-ai mode all`); agent commits carry nWave attribution.
+Pick per run with `--engine` (or `FACTORY_ENGINE`). All three run under the
+nWave tool-call guard (`nwave-ai mode all`). Agent commits carry nWave
+attribution.
 
 Every run is double-checked by default:
 
@@ -119,16 +123,19 @@ python3 day-shift/status.py
 
 - [pi](https://pi.dev) installed and logged in (run `pi` once, `/login`) —
   or point `PI_BIN` at any compatible CLI
-- git; Python 3.9+ (stdlib only — nothing to pip install)
-- one or both host CLIs: [pi](https://pi.dev) (`pi` → `/login` once) and/or
-  Claude Code (`claude` installed and logged in)
+- git and Python 3.9+ (the runtime needs only the standard library)
+- for development: [uv](https://docs.astral.sh/uv/) — `uv sync` installs
+  pytest, `uv run pytest` runs the suite
+- one or more host CLIs: [pi](https://pi.dev) (`pi` → `/login` once),
+  Claude Code (`claude` installed and logged in) and/or
+  [opencode](https://opencode.ai) (`opencode auth login` once)
 - for self-running nights: `crontab` (install with `night-shift/schedule.py install`)
 
 ## First night
 
 1. `cp docs/work-order-template.md work-orders/001-my-task.md` and fill it in
 2. Flip `status: draft` → `approved` — this is the handover
-3. `./night-shift/run.sh`
+3. `python3 night-shift/run.py`
 4. Tomorrow: `./day-shift/status.py` → review the diff → `./day-shift/accept.py 001`
 
 The full shift checklists live in [`docs/runbook.md`](docs/runbook.md).
