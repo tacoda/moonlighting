@@ -1134,6 +1134,14 @@ def test_harness_engine_required(tmp_path):
     assert "no engine defined" in str(excinfo.value)
 
 
+def test_target_repo_harness_fields(tmp_path):
+    repo = factory.TargetRepo(tmp_path)
+    assert repo.engine is None
+    assert repo.model is None
+    assert repo.qa_model is None
+    assert repo.plan_model is None
+
+
 def test_schedule_at_validation(tmp_path, monkeypatch):
     cfg = tmp_path / "config.toml"
     cfg.write_text('[factory]\nschedule-at = "99 99"\n')

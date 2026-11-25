@@ -557,12 +557,14 @@ class TargetRepo:
 
     def __init__(self, path: Path, profile_name: str = "",
                  engine: str | None = None, model: str | None = None,
-                 qa_model: str | None = None):
+                 qa_model: str | None = None,
+                 plan_model: str | None = None):
         self.path = path
         self.profile_name = profile_name
         self.engine = engine
         self.model = model
         self.qa_model = qa_model
+        self.plan_model = plan_model
 
     @classmethod
     def resolve(cls, repo_value: str | None,
@@ -619,7 +621,8 @@ class TargetRepo:
             return cls(bp, profile_name=binding.get("profile", ""),
                        engine=binding.get("engine") or None,
                        model=binding.get("model") or None,
-                       qa_model=binding.get("qa-model") or None)
+                       qa_model=binding.get("qa-model") or None,
+                       plan_model=binding.get("plan-model") or None)
         p = Path(repo_value).expanduser()
         p = p.resolve()
         if subprocess.run(["git", "-C", str(p), "rev-parse", "--git-dir"],
