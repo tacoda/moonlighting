@@ -29,7 +29,7 @@ The night runner moves `approved → review` (or `→ blocked` when a run fails)
 ## Rules for agents in this repo
 
 - Execute only orders whose status is `approved`, only through the night-shift flow.
-- Work on the order's own branch (`wo/NNN`). Never merge, never push, never commit to `main`.
+- Work on the order's own branch (`wo/<id>`). Never merge, never push, never commit to `main`.
 - Never edit order files — not statuses, not logs, not decision sections.
   Those belong to humans and the runner. Reading orders is expected.
 - An order may target another repo (`repo:` field). The runner places you in
