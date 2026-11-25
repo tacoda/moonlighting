@@ -21,7 +21,7 @@ import shutil
 import subprocess
 import sys
 
-from moonlighting import factory
+from . import factory
 
 TAG = "# moonlighting-factory"
 

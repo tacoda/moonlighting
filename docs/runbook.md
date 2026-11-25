@@ -14,7 +14,8 @@
        nwave-ai mode all
 
 4. Install the factory command: `uv tool install moonlighting-factory` — or run it
-   from a checkout with `uv run moonlighting ...` after `uv sync`.
+   from a checkout with `uv run moonlighting ...` after `uv sync`. Add
+   `--dev` to work on a factory checkout instead of the global data dir.
 5. Make an initial commit: the night runner needs a clean tree on `main` with
    at least one commit.
 6. Orders live in `work-orders/`, tracked in the factory repo. Set

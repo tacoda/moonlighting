@@ -39,6 +39,16 @@ uv runs everything under the hood. Commands work through
 `uv run moonlighting ...` inside a factory checkout, or globally after
 `uv tool install moonlighting-factory`.
 
+## Modes
+
+The binary works globally out of the box. Config and a shared data
+directory live at `~/.config/moonlighting/` and
+`~/.local/share/moonlighting/`. No git repo is needed.
+
+Working on the factory itself? Run with `--dev` (or env
+`MOONLIGHTING_DEV=1`) inside the checkout. Dev mode reads that
+checkout's `work-orders/` and manuals instead of the global ones.
+
 ## Config
 
 Every user keeps a config at `~/.config/moonlighting/config.toml` on their

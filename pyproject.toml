@@ -1,6 +1,6 @@
 [project]
 name = "moonlighting-factory"
-version = "0.1.2"
+version = "0.2.0"
 description = "A software factory: people decide by day, agents type by night."
 readme = "README.md"
 license = "MIT"
@@ -17,10 +17,10 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Software Development :: Build Tools",
 ]
-dependencies = []
+dependencies = ["rich", "typer"]
 
 [project.scripts]
-moonlighting = "moonlighting.cli:main"
+moonlighting = "moonlighting.cli:app"
 
 [project.urls]
 Repository = "https://github.com/tacoda/moonlighting"

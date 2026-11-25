@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import sys
 
-from moonlighting import factory
+from . import factory
 
 
 def main() -> None:
-    root = factory.repo_root()
-    files = sorted(factory.orders_dir(root).glob("*.md"))
+    fl = factory.floor()
+    base = fl["root"] or factory.data_dir()
+    files = sorted(fl["orders"].glob("*.md"))
     if not files:
         print("no work orders")
         return
@@ -26,7 +27,7 @@ def main() -> None:
     seen: dict[str, str] = {}
     bad = 0
     for f in files:
-        order = factory.WorkOrder(f, root)
+        order = factory.WorkOrder(f, base)
         problems = order.lint()
         if order.id:
             if order.id in seen:

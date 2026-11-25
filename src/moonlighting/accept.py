@@ -7,7 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from moonlighting import factory
+from . import factory
 
 
 def main() -> None:

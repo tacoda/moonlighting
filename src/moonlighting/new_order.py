@@ -19,7 +19,7 @@ import time
 import uuid
 from datetime import date
 
-from moonlighting import factory
+from . import factory
 
 
 def slugify(title: str) -> str:

@@ -25,6 +25,7 @@ import time
 import tomllib
 import uuid
 from datetime import date, datetime
+from importlib import resources
 from pathlib import Path
 from typing import NoReturn
 
@@ -83,17 +84,76 @@ def repo_root() -> Path:
     return Path(out)
 
 
-def orders_dir(root: Path) -> Path:
-    """Work orders live in <root>/work-orders and are tracked in the
-    factory repo. Point elsewhere with FACTORY_ORDERS_DIR (absolute, or
-    relative to the factory root); tracking there is then up to you."""
+def dev_mode() -> bool:
+    """Dev mode works on a factory checkout under the current directory."""
+    return bool(os.environ.get("MOONLIGHTING_DEV"))
+
+
+def data_dir() -> Path:
+    """Global mode state: orders, logs, locks and sessions live here."""
+    override = os.environ.get("MOONLIGHTING_DATA")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".local" / "share" / "moonlighting"
+
+
+def packaged_manual(name: str) -> Path:
+    return Path(str(resources.files("moonlighting").joinpath("manuals", name)))
+
+
+def floor() -> dict:
+    """Resolve every location for the current mode.
+
+    Dev mode (MOONLIGHTING_DEV, or --dev) works on the factory checkout in
+    the current directory. Global mode (default) uses the user config and
+    the shared data directory. No git repo is required there."""
+    if dev_mode():
+        root = repo_root()
+        night_dir = root / "night-shift"
+        manual = night_dir / "NIGHT-SHIFT.md"
+        if not manual.is_file():
+            manual = packaged_manual("NIGHT-SHIFT.md")
+        qa = night_dir / "QA-SHIFT.md"
+        if not qa.is_file():
+            qa = packaged_manual("QA-SHIFT.md")
+        return {"mode": "dev", "root": root,
+                "orders": root / "work-orders",
+                "night_dir": night_dir, "manual": manual, "qa": qa,
+                "logs": night_dir / "logs",
+                "worktrees": night_dir / "worktrees",
+                "locks": night_dir / "locks",
+                "sessions": night_dir / "sessions.json",
+                "tracked": True}
+    data = data_dir()
+    cfg = load_config().get("factory", {})
+    orders = Path(cfg.get("orders-dir") or data / "orders").expanduser()
+    manuals_dir = cfg.get("manuals-dir")
+    if manuals_dir:
+        mdir = Path(manuals_dir).expanduser()
+        manual = mdir / "NIGHT-SHIFT.md"
+        qa = mdir / "QA-SHIFT.md"
+    else:
+        manual = packaged_manual("NIGHT-SHIFT.md")
+        qa = packaged_manual("QA-SHIFT.md")
+    return {"mode": "global", "root": None, "orders": orders,
+            "night_dir": data, "manual": manual, "qa": qa,
+            "logs": data / "logs", "worktrees": data / "worktrees",
+            "locks": data / "locks", "sessions": data / "sessions.json",
+            "tracked": False}
+
+
+def orders_dir(root: Path | None = None) -> Path:
+    """Orders directory for the current mode. FACTORY_ORDERS_DIR and
+    config [factory] orders-dir override the default."""
     override = os.environ.get("FACTORY_ORDERS_DIR") or factory_setting("orders-dir")
-    if not override:
+    if override:
+        p = Path(override).expanduser()
+        if not p.is_absolute() and root is not None:
+            p = root / p
+        return p
+    if root is not None:
         return root / "work-orders"
-    p = Path(override).expanduser()
-    if not p.is_absolute():
-        p = root / p
-    return p
+    return data_dir() / "orders"
 
 
 def git(cwd: Path, *args: str, check: bool = True,

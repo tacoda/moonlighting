@@ -16,7 +16,7 @@ import gzip
 import sys
 import time
 
-from moonlighting import factory
+from . import factory
 
 
 def main() -> None:
