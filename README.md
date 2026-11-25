@@ -19,23 +19,24 @@ review branches & reports    ◄──────   flip orders to review/block
 merge, block, or reject               never merge, never touch main
 ```
 
-The whole lifecycle is one binary, `factory`, with a subcommand per workflow:
+The whole lifecycle is one binary, `moonlighting`, with a subcommand per workflow:
 
 ```text
-factory new-order "Title"      create an order; it asks, then offers to approve
-factory status                 see every order: approved, blocked, review, draft, done
-factory approve ID             approve a draft
-factory night                  run the queue (--repo, --engine, --model, --max-orders)
-factory accept ID              merge a reviewed order into its target repo
-factory answer ID "text"       answer a blocked order; it re-approves for tonight
-factory feedback ID "text"     send a review back with feedback; it goes to blocked
-factory lint-orders            check every order before spending tokens
-factory rotate-logs --days 90  gzip old logs (never deletes)
-factory schedule install       nightly cron at 00:01 (remove and status too)
+moonlighting new-order "Title"      create an order; it asks, then offers to approve
+moonlighting status                 see every order: approved, blocked, review, draft, done
+moonlighting approve ID             approve a draft
+moonlighting night                  run the queue (--repo, --engine, --model, --max-orders)
+moonlighting accept ID              merge a reviewed order into its target repo
+moonlighting answer ID "text"       answer a blocked order; it re-approves for tonight
+moonlighting feedback ID "text"     send a review back with feedback; it goes to blocked
+moonlighting lint-orders            check every order before spending tokens
+moonlighting rotate-logs --days 90  gzip old logs (never deletes)
+moonlighting schedule install       nightly cron at 00:01 (remove and status too)
 ```
 
-uv runs everything under the hood. Commands work through `uv run factory ...`
-inside a factory checkout, or globally after `uv tool install moonlighting`.
+uv runs everything under the hood. Commands work through
+`uv run moonlighting ...` inside a factory checkout, or globally after
+`uv tool install moonlighting`.
 
 ## Layout
 
@@ -48,7 +49,7 @@ night-shift/sessions.json   engine session ids per order (local state, gitignore
 night-shift/locks/      run locks (gitignored)
 night-shift/worktrees/  per-run worktrees of target repos (gitignored, removed after each run)
 repos/                  target repos cloned from git URLs (gitignored)
-src/moonlighting/       the library; every workflow is a factory subcommand
+src/moonlighting/       the library; every workflow is a moonlighting subcommand
 bin/                    misc scripts (the factory greeting)
 docs/work-order-template.md  how orders are written
 docs/runbook.md         shift checklists (morning, handover, forensics)
@@ -135,7 +136,7 @@ factory status
 ## Requirements
 
 - git, Python 3.9+, and [uv](https://docs.astral.sh/uv/). The factory code
-  is stdlib-only. uv runs everything: `uv sync` installs the `factory`
+  is stdlib-only. uv runs everything: `uv sync` installs the `moonlighting`
   command into the checkout, `uv run pytest` runs the suite. Publish to
   PyPI with `uv build` and `uv publish`.
 - the host CLI for your selected engine, logged in. Pick [pi](https://pi.dev)
@@ -146,11 +147,11 @@ factory status
 
 ## First night
 
-1. `factory new-order "My task"` — answer the prompts, then approve
-2. `factory night`
-3. Tomorrow: `factory status` shows the verdicts. Review the diff, then
-   `factory accept ID`, `factory feedback ID "..."` or
-   `factory answer ID "..."`
-4. Optional: `factory schedule install` runs the night daily at 00:01
+1. `moonlighting new-order "My task"` — answer the prompts, then approve
+2. `moonlighting night`
+3. Tomorrow: `moonlighting status` shows the verdicts. Review the diff, then
+   `moonlighting accept ID`, `moonlighting feedback ID "..."` or
+   `moonlighting answer ID "..."`
+4. Optional: `moonlighting schedule install` runs the night daily at 00:01
 
 The full shift checklists live in [`docs/runbook.md`](docs/runbook.md).

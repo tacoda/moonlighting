@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""factory new-order TITLE — create the next work order from the template.
+"""moonlighting new-order TITLE — create the next work order from the template.
 
-    factory new-order "Atom feed for the essays"
-    factory new-order "Error contract" --repo ~/repos/lark
+    moonlighting new-order "Atom feed for the essays"
+    moonlighting new-order "Error contract" --repo ~/repos/lark
 
 Generates a unique sha id, slugs the title into the filename, and fills
 the frontmatter. Orders live outside git: the file lands in the orders

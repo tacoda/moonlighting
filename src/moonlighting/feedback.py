@@ -1,6 +1,6 @@
-"""factory feedback ID MESSAGE... — send a review back with feedback.
+"""moonlighting feedback ID MESSAGE... — send a review back with feedback.
 
-    factory feedback a1b2c3d add tests for the empty case
+    moonlighting feedback a1b2c3d add tests for the empty case
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from moonlighting import factory
 
 def main() -> None:
     if len(sys.argv) < 3:
-        factory.die("usage: factory feedback ID MESSAGE...", 2)
+        factory.die("usage: moonlighting feedback ID MESSAGE...", 2)
     oid = sys.argv[1]
     message = " ".join(sys.argv[2:])
 

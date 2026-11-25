@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""factory night — execute approved work orders headlessly.
+"""moonlighting night — execute approved work orders headlessly.
 
 Each order names its target repo via the `repo:` frontmatter field (default:
 this factory; a path or git URL points elsewhere — URLs are cloned under

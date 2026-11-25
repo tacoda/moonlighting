@@ -6,7 +6,7 @@ requires-python = ">=3.9"
 dependencies = []
 
 [project.scripts]
-factory = "moonlighting.cli:main"
+moonlighting = "moonlighting.cli:main"
 
 [dependency-groups]
 dev = ["pytest"]

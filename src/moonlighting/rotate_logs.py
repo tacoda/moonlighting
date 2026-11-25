@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""factory rotate-logs — gzip old night logs, never delete them.
+"""moonlighting rotate-logs — gzip old night logs, never delete them.
 
 Logs are the factory's append-only memory. This tool compresses log
 files older than --days into night-shift/logs/archive/ so the directory
 stays readable. Preview by default. Pass --write to rotate.
 
-    factory rotate-logs --days 90           # preview
-    factory rotate-logs --days 90 --write   # rotate
+    moonlighting rotate-logs --days 90           # preview
+    moonlighting rotate-logs --days 90 --write   # rotate
 """
 
 from __future__ import annotations

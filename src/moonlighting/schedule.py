@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""factory schedule — the night that starts itself.
+"""moonlighting schedule — the night that starts itself.
 
 Install/remove/inspect a cron entry that runs the night shift nightly.
 The cron fires harmlessly when the queue is empty: no approved orders,
 no model calls, no cost.
 
-    factory schedule install [--at "1 0"] [--max-orders 3]
-    factory schedule remove
-    factory schedule status
+    moonlighting schedule install [--at "1 0"] [--max-orders 3]
+    moonlighting schedule remove
+    moonlighting schedule status
 
 Requires crontab(1) and an authenticated host CLI in the cron environment
 (paths are resolved and baked in at install time).
@@ -99,7 +99,7 @@ def main() -> None:
         factory.die("uv not found on PATH (install https://docs.astral.sh/uv)")
     entry = (f"{minute} {hour} * * * cd '{root}' "
              f"&&{orders_part} {bin_var}='{os.path.abspath(bin_val)}' "
-             f"'{uv}' run factory night --engine {engine}"
+             f"'{uv}' run moonlighting night --engine {engine}"
              f"{model_part}{qa_model_part} "
              f"--max-orders {args.max_orders} "
              f">> night-shift/logs/cron.log 2>&1 {TAG}")
@@ -109,7 +109,7 @@ def main() -> None:
     print("night schedule installed:")
     print(f"  {entry}")
     print("the cron fires harmlessly when the queue is empty; "
-          "remove with: factory schedule remove")
+          "remove with: moonlighting schedule remove")
 
 
 if __name__ == "__main__":

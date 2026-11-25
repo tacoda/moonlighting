@@ -1,4 +1,4 @@
-"""factory approve ID — approve a draft order for the next night."""
+"""moonlighting approve ID — approve a draft order for the next night."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from moonlighting import factory
 
 def main() -> None:
     if len(sys.argv) != 2:
-        factory.die("usage: factory approve ID", 2)
+        factory.die("usage: moonlighting approve ID", 2)
     oid = sys.argv[1]
 
     root = factory.repo_root()

@@ -8,12 +8,12 @@ Two views of the same loop: a **flowchart** of the work-order lifecycle
 ```mermaid
 flowchart TD
     subgraph DAY ["☀️ Day shift — people decide"]
-        A["write order\n(status: draft)"] --> B["lint-order.py"]
+        A["write order\n(status: draft)"] --> B["moonlighting lint-orders"]
         B -->|"problems"| B2["fix the order"]
         B2 --> B
         B -->|"clean"| C["status: approved\nthis is the handover"]
-        M["morning: status.py"] --> N{"verdict"}
-        N -->|"good"| O["accept.py NNN\nsquash-merge into target main"]
+        M["morning: moonlighting status"] --> N{"verdict"}
+        N -->|"good"| O["moonlighting accept ID\nsquash-merge into target main"]
         O --> P["done — push the target\n(factory never pushes)"]
         N -->|"not there yet"| Q["status: blocked\n+ question under Day shift decisions"]
         Q --> RE["re-approve for tonight\n(rerun resumes the session)"]
@@ -21,11 +21,11 @@ flowchart TD
     end
 
     subgraph NIGHT ["🌙 Night shift — agents execute"]
-        S["00:01 cron fires\nrun.py --max-orders 3"] --> T{"approved orders?"}
+        S["00:01 cron fires\nmoonlighting night --max-orders 3"] --> T{"approved orders?"}
         T -->|"none"| U["log the no-op\nexit 0 — zero tokens"]
         T -->|"yes"| V["lint gate"]
         V -->|"malformed"| W["blocked — no tokens spent\nhealthy orders still run"]
-        V -->|"clean"| X["throwaway worktree\nbranch wo/NNN from local main"]
+        V -->|"clean"| X["throwaway worktree\nbranch wo/<id> from local main"]
         X --> Y["engine pass\npi, claude or opencode, headless"]
         Y --> Z["QA pre-shift\nSHIP / BLOCK / UNSURE"]
         Z --> AA["bookkeeping on factory main:\nreport + events archived, status → review"]

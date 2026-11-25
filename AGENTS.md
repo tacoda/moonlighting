@@ -8,9 +8,9 @@ contract between shifts.
 ## Layout
 
 - `work-orders/<sha>-short-title.md` — one file per unit of work. Each order carries a unique 7-char sha id
-- `night-shift/run.py` — executes approved orders headlessly via pi
+- `moonlighting night` — executes approved orders headlessly
 - `night-shift/NIGHT-SHIFT.md` — the night agent's operating manual
-- `day-shift/status.py` — floor report · `day-shift/accept.py NNN` — squash-merge an order into its target repo
+- `moonlighting status` — floor report · `moonlighting accept ID` — squash-merge an order into its target repo
 - `repos/` — target repos cloned from git URLs (gitignored)
 - `docs/runbook.md` — shift checklists · `docs/work-order-template.md` — order template · `PLAN.md` — roadmap
 

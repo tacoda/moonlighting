@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""factory lint-orders — validate work orders before spending tokens.
+"""moonlighting lint-orders — validate work orders before spending tokens.
 
 Mechanical checks only: frontmatter, required fields, status vocabulary,
 required sections, repo resolvability, duplicate ids. Judgment calls are

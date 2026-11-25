@@ -14,14 +14,14 @@
        nwave-ai mode all
 
 4. Install the factory command: `uv tool install moonlighting` — or run it
-   from a checkout with `uv run factory ...` after `uv sync`.
+   from a checkout with `uv run moonlighting ...` after `uv sync`.
 5. Make an initial commit: the night runner needs a clean tree on `main` with
    at least one commit.
 6. Orders are input, not source: they live in the gitignored `work-orders/`
    directory by default. Set `FACTORY_ORDERS_DIR` to point somewhere else.
-7. Smoke-test: `factory night --dry-run`
+7. Smoke-test: `moonlighting night --dry-run`
 8. When you trust the loop, let nights start themselves:
-   `factory schedule install [--engine pi|claude|opencode]`
+   `moonlighting schedule install [--engine pi|claude|opencode]`
    (fires nightly at 00:01, harmlessly no-ops on an empty queue, `remove`
    undoes it, `status` shows the entry).
 
@@ -31,14 +31,14 @@
 
 ## Writing orders (day shift)
 
-- `factory new-order` creates the next order and asks for title, repo and model,
+- `moonlighting new-order` creates the next order and asks for title, repo and model,
   then offers to approve. Flags work for scripting:
-  `factory new-order "Title" --repo R --model M --approve`. One order = one
+  `moonlighting new-order "Title" --repo R --model M --approve`. One order = one
   branch = one review. Each order gets a unique 7-char sha id. Ids are
   never reused, even after `done`.
-- `factory status` shows the queue: approved orders, blocked ones, review items
+- `moonlighting status` shows the queue: approved orders, blocked ones, review items
   and drafts.
-- Before approving: `factory lint-orders` — it catches
+- Before approving: `moonlighting lint-orders` — it catches
   malformed orders (missing fields, empty sections, bad repo paths) before
   they spend tokens. The night runner also lint-blocks approved orders
   automatically.
@@ -65,11 +65,11 @@
    Target repos don't need to be clean anymore: nights run in throwaway
    worktrees (`night-shift/worktrees/`, removed after each run) and never
    touch your working copies.
-2. `factory night --dry-run [--repo R]` — preview tonight's queue.
+2. `moonlighting night --dry-run [--repo R]` — preview tonight's queue.
 3. One factory process per repo; separate factory clones run in parallel:
 
-       factory night --repo ~/repos/shop
-       factory night --repo git@github.com:acme/api.git --engine claude
+       moonlighting night --repo ~/repos/shop
+       moonlighting night --repo git@github.com:acme/api.git --engine claude
 
    `--repo` takes a path or URL and only runs that repo's orders; the default
    works this factory's own queue. Pick the host with `--engine
@@ -83,7 +83,7 @@
 
 ## Morning checklist (day shift)
 
-1. `factory status` (all repos, filter with `--repo`). The
+1. `moonlighting status` (all repos, filter with `--repo`). The
    night also writes `logs/YYYY-MM-DD-morning.md` with the verdicts.
 2. For each `review` order:
    - Read the **QA pre-shift verdict** (SHIP/BLOCK/UNSURE) and the agent's
@@ -91,7 +91,7 @@
      shortcut; spot-check what it flags.
    - Review the branch **in its target repo**:
      `git -C <target> diff main...wo/NNN` — run the result if warranted.
-   - Good → `factory accept ID` (squash-merges into the target's
+   - Good → `moonlighting accept ID` (squash-merges into the target's
      main, marks done). Push the target repo yourself — the factory never
      pushes.
    - Not there yet → set `blocked`, append your question under
@@ -130,7 +130,7 @@
 - Logs are append-only. They are the factory's memory; never delete them.
   `day-shift/rotate-logs.py --days 90 --write` gzips old files into
   `logs/archive/` without losing content.
-- Every workflow is a subcommand of `factory`: night, status, new-order,
+- Every workflow is a subcommand of `moonlighting`: night, status, new-order,
   approve, answer, feedback, accept, lint-orders, rotate-logs and schedule.
 - Change the factory scripts? Run the suite: `uv run pytest`.
 

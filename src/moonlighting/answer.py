@@ -1,6 +1,6 @@
-"""factory answer ID MESSAGE... — answer a blocked order and re-approve it.
+"""moonlighting answer ID MESSAGE... — answer a blocked order and re-approve it.
 
-    factory answer a1b2c3d use the other path
+    moonlighting answer a1b2c3d use the other path
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from moonlighting import factory
 
 def main() -> None:
     if len(sys.argv) < 3:
-        factory.die("usage: factory answer ID MESSAGE...", 2)
+        factory.die("usage: moonlighting answer ID MESSAGE...", 2)
     oid = sys.argv[1]
     message = " ".join(sys.argv[2:])
 

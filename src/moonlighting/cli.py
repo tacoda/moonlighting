@@ -1,7 +1,7 @@
-"""The factory command: one binary for every workflow.
+"""The moonlighting command: one binary for every workflow.
 
-    factory night --engine pi
-    factory new-order "Title"
+    moonlighting night --engine pi
+    moonlighting new-order "Title"
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def main() -> None:
     argv = sys.argv[1:]
     if not argv or argv[0] not in COMMANDS:
         known = ", ".join(sorted(COMMANDS))
-        print(f"usage: factory <command> [...]\ncommands: {known}",
+        print(f"usage: moonlighting <command> [...]\ncommands: {known}",
               file=sys.stderr)
         raise SystemExit(2)
     command = sys.argv.pop(1)
