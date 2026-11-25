@@ -500,3 +500,36 @@ def test_accept_external_merge_keeps_the_checkout(tmp_path):
         ["git", "-C", str(target), "worktree", "list"],
         capture_output=True, text=True).stdout
     assert worktrees.count("\n") == 1
+
+
+def test_lint_id_filename_mismatch(tmp_path):
+    order = make_order(tmp_path, name="007-mismatch.md")
+    problems = order.lint()
+    assert any("does not match the filename prefix" in p for p in problems)
+
+
+def test_run_empty_filter_lists_other_repos(tmp_path, capsys):
+    shop = make_git_repo(tmp_path / "shop")
+    other = make_git_repo(tmp_path / "other")
+    (tmp_path / "work-orders").mkdir()
+    (tmp_path / "night-shift").mkdir()
+    (tmp_path / "night-shift" / "NIGHT-SHIFT.md").write_text("# manual\n")
+    (tmp_path / "night-shift" / "QA-SHIFT.md").write_text("# qa\n")
+    order = GOOD_APPROVED.replace("---\n", f"---\nrepo: {shop}\n", 1)
+    (tmp_path / "work-orders" / "001-shop.md").write_text(order)
+    night = nightrun.NightRun(tmp_path, "pi", str(other), 5, True, 60)
+    night.run()
+    out = capsys.readouterr().out
+    assert "nothing approved for this repo" in out
+    assert "approved orders exist for other repos" in out
+    assert "001" in out and str(shop) in out
+
+
+def test_preflight_failure_lands_in_errors_log(tmp_path):
+    script = Path(__file__).resolve().parents[1] / "night-shift" / "run.py"
+    floor = make_git_repo(tmp_path / "floor")
+    r = subprocess.run([sys.executable, str(script)], cwd=floor,
+                       capture_output=True, text=True)
+    assert r.returncode == 1
+    log = floor / "night-shift" / "logs" / "errors.log"
+    assert "no work-orders" in log.read_text()

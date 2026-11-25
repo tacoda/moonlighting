@@ -93,6 +93,8 @@
 - Order file — every run's report plus the QA pre-shift verdict.
 - Raw agent output — `night-shift/logs/YYYY-MM-DD-wo-NNN.out.md` (+
   `.err.log` on failures).
+- Night never started? `night-shift/logs/errors.log` holds pre-flight
+  failures: dirty floor, wrong branch, missing binary.
 - Full event streams — `night-shift/logs/*.events.jsonl` and `*.qa.jsonl`:
   every tool call, every token, archived. This is the factory's flight
   recorder.

@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 repos/
+night-shift/logs/errors.log
 night-shift/locks/
 night-shift/worktrees/
 night-shift/logs/cron.log

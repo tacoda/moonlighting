@@ -86,7 +86,8 @@ def main() -> None:
     bin_val = os.environ.get(bin_var) or shutil.which(engine)
     if not bin_val:
         factory.die(f"{engine} not found on PATH (set {bin_var})")
-    entry = (f"{minute} {hour} * * * cd {root} && {bin_var}={os.path.abspath(bin_val)} "
+    entry = (f"{minute} {hour} * * * cd '{root}' "
+             f"&& {bin_var}='{os.path.abspath(bin_val)}' "
              f"{sys.executable} night-shift/run.py --engine {engine} "
              f"--max-orders {args.max_orders} "
              f">> night-shift/logs/cron.log 2>&1 {TAG}")

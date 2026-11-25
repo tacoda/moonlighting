@@ -151,4 +151,4 @@ Explicitly out of scope until Phase 3+: worktrees (done), JSON event archives (d
 | Secrets/credentials exposed to the agent | Orders reference files, never inline secrets; `.env`-style files gitignored from day one |
 | Night run corrupts the repo | Each order works on its own branch in its own worktree; `main` only moves via day-shift merges |
 | Two machines, same target repo | Locks are machine-local — out of scope by design; keep one factory (on one machine) per target repo |
-| Silent failures | Runner logs every attempt (success or not) to `night-shift/logs/` and never deletes logs |
+| Silent failures | The runner records every order attempt in `night-shift/logs/` and never deletes logs. Pre-flight failures land in the gitignored `night-shift/logs/errors.log` |

@@ -14,6 +14,7 @@ See docs/runbook.md.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import sys
 import tempfile
@@ -97,9 +98,21 @@ class NightRun:
     def run(self) -> None:
         healthy, problems, skipped = self.collect()
         if not healthy and not problems:
-            print("nothing approved"
-                  + (" for this repo" if self.repo_filter else "")
-                  + " — nothing to do tonight.")
+            if self.repo_filter is None:
+                print("nothing approved — nothing to do tonight.")
+                return
+            print("nothing approved for this repo — nothing to do tonight.")
+            others = []
+            for path in sorted((self.root / "work-orders").glob("*.md")):
+                order = factory.WorkOrder(path, self.root)
+                if order.status != "approved":
+                    continue
+                target = order.repo_value or "this factory"
+                others.append(f"  {order.id}  {order.title}  ->  {target}")
+            if others:
+                print("approved orders exist for other repos:")
+                for line in others:
+                    print(line)
             return
 
         print(f"night shift queue (engine: {self.engine_name}):")
@@ -364,5 +377,13 @@ if __name__ == "__main__":
     try:
         main()
     except factory.FactoryError as e:
+        # Pre-flight failures leave nothing else behind. Give them a fixed,
+        # gitignored home next to the run logs.
+        with contextlib.suppress(Exception):
+            log = factory.repo_root() / "night-shift" / "logs" / "errors.log"
+            log.parent.mkdir(parents=True, exist_ok=True)
+            stamp = f"{datetime.now():%Y-%m-%d %H:%M}"
+            with log.open("a") as f:
+                f.write(f"{stamp} exit {e.code}: {e}\n")
         print(e, file=sys.stderr)
         sys.exit(e.code)
