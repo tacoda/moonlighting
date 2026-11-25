@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -32,9 +33,6 @@ def main() -> None:
     branch = order.branch
     t_display = repo.display()
 
-    if repo.is_dirty():
-        factory.die(f"target repo is dirty: {t_display} — commit or stash "
-                    f"there first")
     if not repo.branch_exists(branch):
         factory.die(f"branch {branch} does not exist in {t_display}")
     base = repo.local_main()
@@ -50,25 +48,50 @@ def main() -> None:
     if not factory.clean_tree(root):
         factory.die("factory working tree must be clean")
 
-    factory.git(repo.path, "checkout", "-q", base)
-    merge = factory.git(repo.path, "merge", "--squash", branch, check=False)
-    if merge.returncode != 0:
-        print(merge.stdout + merge.stderr, file=sys.stderr)
-        factory.die("squash-merge conflicts — resolve by hand in the target "
-                    f"repo, or: git -C {t_display} merge --abort")
-
     title = order.title or oid
     commit_msg = f"wo-{oid}: {title} (night shift; accepted by day shift)"
-    if repo.path == root:
-        # one commit: merged code + order marked done, in the factory's own history
-        order.set_status("done")
-        factory.git(root, "add", "-A")
-        factory.git(root, "commit", "-q", "-m", commit_msg)
+
+    if repo.current_branch() == base:
+        # The target sits on main, so the merge happens in place. The human
+        # asked for this landing, and main is where it belongs.
+        if repo.is_dirty():
+            factory.die(f"target repo is dirty: {t_display} — commit or stash "
+                        f"there first")
+        merge = factory.git(repo.path, "merge", "--squash", branch, check=False)
+        if merge.returncode != 0:
+            print(merge.stdout + merge.stderr, file=sys.stderr)
+            factory.die("squash-merge conflicts — resolve by hand in the target "
+                        f"repo, or: git -C {t_display} merge --abort")
+        if repo.path == root:
+            # one commit: merged code + order marked done, in the factory's own history
+            order.set_status("done")
+            factory.git(root, "add", "-A")
+            factory.git(root, "commit", "-q", "-m", commit_msg)
+        else:
+            # the work commits in the target repo (squash only stages it)
+            # the factory records the decision separately
+            factory.git(repo.path, "add", "-A")
+            factory.git(repo.path, "commit", "-q", "-m", commit_msg)
+            order.set_status("done")
+            factory.git(root, "add", str(order.rel))
+            factory.git(root, "commit", "-q", "-m", f"wo-{oid}: mark done (day shift)")
     else:
-        # the work commits in the target repo (squash only stages it!);
-        # the factory records the decision separately
-        factory.git(repo.path, "add", "-A")
-        factory.git(repo.path, "commit", "-q", "-m", commit_msg)
+        # The target sits on another branch. Merge in a throwaway worktree
+        # at main, so the human's checkout stays exactly where it is.
+        with tempfile.TemporaryDirectory() as tmp:
+            wt = Path(tmp) / "accept"
+            factory.git(repo.path, "worktree", "add", str(wt), base)
+            try:
+                merge = factory.git(wt, "merge", "--squash", branch, check=False)
+                if merge.returncode != 0:
+                    print(merge.stdout + merge.stderr, file=sys.stderr)
+                    factory.die("squash-merge conflicts — merge by hand when "
+                                f"ready: git -C {t_display} merge --squash {branch}")
+                factory.git(wt, "add", "-A")
+                factory.git(wt, "commit", "-q", "-m", commit_msg)
+            finally:
+                factory.git(repo.path, "worktree", "remove", "--force",
+                            str(wt), check=False)
         order.set_status("done")
         factory.git(root, "add", str(order.rel))
         factory.git(root, "commit", "-q", "-m", f"wo-{oid}: mark done (day shift)")

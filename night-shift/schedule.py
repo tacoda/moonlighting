@@ -52,13 +52,16 @@ def main() -> None:
                       help="daily fire time (default: 17 1, i.e. 01:17)")
     inst.add_argument("--max-orders", type=int, default=3,
                       help="orders per night (default: 3)")
+    inst.add_argument("--engine", default=os.environ.get("FACTORY_ENGINE", "pi"),
+                      help="host agent: pi, claude or opencode (default pi). "
+                           "env FACTORY_ENGINE")
     sub.add_parser("remove", help="remove the nightly entry")
     sub.add_parser("status", help="show the nightly entry, if any")
     args = ap.parse_args()
 
     root = factory.repo_root()
     lines = current_crontab().splitlines()
-    kept = [l for l in lines if TAG not in l]
+    kept = [line for line in lines if TAG not in line]
 
     if args.cmd == "remove":
         set_crontab("\n".join(kept) + "\n" if kept else "")
@@ -66,21 +69,26 @@ def main() -> None:
         return
 
     if args.cmd == "status":
-        found = [l for l in lines if TAG in l]
+        found = [line for line in lines if TAG in line]
         print("\n".join(found) if found else "not installed")
         return
 
     try:
         minute, hour = args.at.split()
-        int(minute), int(hour)
+        minute, hour = int(minute), int(hour)
     except ValueError:
         factory.die("--at takes 'minute hour', e.g. --at '17 1'", 2)
+    if not (0 <= minute <= 59 and 0 <= hour <= 23):
+        factory.die("--at takes 'minute hour' in range (minute 0-59, hour 0-23)", 2)
 
-    pi = os.environ.get("PI_BIN") or shutil.which("pi")
-    if not pi:
-        factory.die("pi not found on PATH (set PI_BIN)")
-    entry = (f"{minute} {hour} * * * cd {root} && PI_BIN={os.path.abspath(pi)} "
-             f"{sys.executable} night-shift/run.py --max-orders {args.max_orders} "
+    engine = args.engine
+    bin_var = f"{engine.upper()}_BIN"
+    bin_val = os.environ.get(bin_var) or shutil.which(engine)
+    if not bin_val:
+        factory.die(f"{engine} not found on PATH (set {bin_var})")
+    entry = (f"{minute} {hour} * * * cd {root} && {bin_var}={os.path.abspath(bin_val)} "
+             f"{sys.executable} night-shift/run.py --engine {engine} "
+             f"--max-orders {args.max_orders} "
              f">> night-shift/logs/cron.log 2>&1 {TAG}")
 
     kept.append(entry)

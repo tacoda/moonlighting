@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -60,70 +59,85 @@ class NightRun:
 
     # ------------------------------------------------------------ queue
 
-    def collect(self) -> list[tuple[factory.WorkOrder,
-                                    factory.TargetRepo | None,
-                                    list[str]]]:
-        queue = []
+    def collect(self) -> tuple[list, list, int]:
+        """Returns (healthy orders with repos, problem orders with reasons,
+        and the count skipped under --repo). Problem orders carry no repo,
+        so a --repo filter skips them instead of guessing."""
+        healthy: list = []
+        problems: list = []
+        skipped = 0
         for path in sorted((self.root / "work-orders").glob("*.md")):
             order = factory.WorkOrder(path, self.root)
             if order.status != "approved":
                 continue
-            problems = order.lint()
-            if problems:
-                # malformed orders are blocked without spending tokens; the
-                # run keeps its honesty by stopping rather than skipping
-                queue.append((order, None, problems))
-                continue
-            repo = factory.TargetRepo.resolve(self.root, order.repo_value,
-                                              update=self.update, soft=True)
-            if repo is None:
-                # soft resolve. The clone failed or the path is not a git
-                # repo. Block this order instead of aborting the night.
+            trouble: list[str] = order.lint()
+            repo = None
+            if not trouble:
+                repo = factory.TargetRepo.resolve(self.root, order.repo_value,
+                                                  update=self.update, soft=True)
+                if repo is None:
+                    # soft resolve. The clone failed or the path is not a
+                    # git repo. Block this order instead of aborting.
+                    trouble = ["repo: unresolvable (clone failed or not a "
+                               "git repository)"]
+            if trouble:
                 if self.repo_filter is not None:
-                    continue
-                queue.append((order, None,
-                              ["repo: unresolvable (clone failed or not a "
-                               "git repository)"]))
+                    skipped += 1
+                else:
+                    problems.append((order, trouble))
                 continue
-            if self.repo_filter is not None and repo.path != self.repo_filter.path:
+            if (self.repo_filter is not None
+                    and (repo is None or repo.path != self.repo_filter.path)):
                 continue
-            queue.append((order, repo, []))
-        return queue
+            healthy.append((order, repo))
+        return healthy, problems, skipped
 
     # ------------------------------------------------------------ the run
 
     def run(self) -> None:
-        queue = self.collect()
-        if not queue:
+        healthy, problems, skipped = self.collect()
+        if not healthy and not problems:
             print("nothing approved"
                   + (" for this repo" if self.repo_filter else "")
                   + " — nothing to do tonight.")
             return
 
         print(f"night shift queue (engine: {self.engine_name}):")
-        for order, repo, problems in queue:
-            lint = "" if not problems else f"  [lint: {len(problems)} problem(s)]"
-            target = repo.display() if repo else "(unresolvable)"
-            print(f"  {order.rel}  ->  {target}{lint}")
+        for order, repo in healthy:
+            print(f"  {order.rel}  ->  {repo.display()}")
+        for order, trouble in problems:
+            print(f"  {order.rel}  ->  BLOCKED before the run "
+                  f"({len(trouble)} problem(s))")
         if self.dry_run:
             return
+        if skipped:
+            print(f"{skipped} malformed approved order(s) skipped under "
+                  f"--repo — run without --repo to block them")
+
+        # lint blocks cost no tokens and stop nothing: block them all in
+        # one commit, then run the healthy queue
+        blocked: list[str] = []
+        for order, trouble in problems:
+            self._block_order(order, trouble)
+            blocked.append(order.id)
+        if blocked:
+            factory.git(self.root, "add", "-A")
+            factory.git(self.root, "commit", "-q", "-m",
+                        f"night-shift: lint-block {len(blocked)} order(s)")
 
         ran = 0
         failed: str | None = None
-        for order, repo, problems in queue:
+        for order, repo in healthy:
             if ran >= self.max_orders:
                 break
-            if problems or repo is None:
-                new_status = self._lint_block(order, problems
-                                              or ["repo: unresolvable"])
-            else:
-                new_status = self._process(order, repo)
+            new_status = self._process(order, repo)
             ran += 1
             if new_status == "blocked":
                 failed = order.id
                 break
 
-        print(f"\nnight shift over: {ran} order(s) processed.")
+        print(f"\nnight shift over: {ran} order(s) processed"
+              + (f", {len(blocked)} blocked by lint" if blocked else "") + ".")
         if failed:
             print(f"wo-{failed} is blocked — run stopped. See {self.run_log}")
         print("morning: python3 day-shift/status.py")
@@ -140,7 +154,8 @@ class NightRun:
                           repo.slug(), f"repo {repo.display()}"):
             started = time.monotonic()
             rc, report, raw_events, run_err, secs = 0, "", "", "", 0
-            qa_rc, qa_raw, qa_report = None, "", ""
+            qa_rc, qa_raw, qa_report, qa_moved = None, "", "", False
+            no_commits = False
 
             if repo.is_dirty():
                 print(f"note: {repo.display()} has uncommitted changes — "
@@ -152,11 +167,12 @@ class NightRun:
                           f"night-shift manual in your system prompt.\n\n"
                           f"# Work order {order.id}\n\n{order.path.read_text()}")
                 ref = self.sessions.ref(f"{self.engine_name}:{order.id}")
-                argv, new_ref = self.engine.build_command(
+                argv, new_ref, stdin_text = self.engine.build_command(
                     self.system_prompt, prompt, f"wo-{order.id}", ref,
                     json_audit=self.json_audit)
 
-                rc, raw_events, run_err = self._agent_pass(argv, wt.path)
+                rc, raw_events, run_err = self._agent_pass(argv, wt.path,
+                                                           stdin_text)
                 # hosts that pick their own session id (opencode) surface it here
                 new_ref = new_ref or self.engine.ref_from_output(raw_events)
                 if new_ref:
@@ -166,38 +182,35 @@ class NightRun:
                 secs = int(time.monotonic() - started)
 
                 self._sweep(order.id, order.branch, wt.path)
+                ahead = int(factory.git_out(wt.path, "rev-list", "--count",
+                                            f"{base}..HEAD") or "0")
+                no_commits = ahead == 0
 
-                if rc == 0 and self.qa_enabled:
-                    qa_rc, qa_raw, qa_report = self._qa_pass(
+                if rc == 0 and not no_commits and self.qa_enabled:
+                    qa_rc, qa_raw, qa_report, qa_moved = self._qa_pass(
                         order, wt.path, branch=order.branch, base=base)
 
-            return self._bookkeep(order, repo, new_status="review" if rc == 0
+            return self._bookkeep(order, repo,
+                                  new_status="review" if rc == 0 and not no_commits
                                   else "blocked", report=report,
                                   run_err=run_err, rc=rc, secs=secs,
                                   raw_events=raw_events, qa_rc=qa_rc,
-                                  qa_raw=qa_raw, qa_report=qa_report)
+                                  qa_raw=qa_raw, qa_report=qa_report,
+                                  qa_moved=qa_moved, no_commits=no_commits)
 
-    def _agent_pass(self, argv: list[str], cwd: Path) -> tuple[int, str, str]:
+    def _agent_pass(self, argv: list[str], cwd: Path,
+                    stdin_text: str | None = None) -> tuple[int, str, str]:
         """One headless engine pass. Output is captured outside any working
         tree: anything written there could be swept onto a branch and vanish
         with a later checkout. Returns (rc, raw_stdout, stderr)."""
-        rc, raw, run_err = 0, "", ""
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "out"
             err_path = Path(tmp) / "err.log"
-            try:
-                with out_path.open("w") as out, err_path.open("w") as err:
-                    proc = subprocess.run(argv, cwd=cwd, stdout=out,
-                                          stderr=err, timeout=self.timeout_secs)
-                    rc = proc.returncode
-            except subprocess.TimeoutExpired:
-                rc = 124
-            except FileNotFoundError:
-                factory.die(f"engine executable not found: {self.engine.binary} "
-                            f"(set {self.engine.name.upper()}_BIN)", 127)
-            raw = out_path.read_text()
-            run_err = err_path.read_text()
-        return rc, raw, run_err
+            rc = factory.run_under_timeout(
+                argv, cwd, self.timeout_secs, out_path, err_path,
+                input_text=stdin_text,
+                not_found_hint=f"(set {self.engine.name.upper()}_BIN)")
+            return rc, out_path.read_text(), err_path.read_text()
 
     def _sweep(self, order_id: str, branch: str, wt_path: Path) -> None:
         """The agent must leave a committed branch; sweep up what it forgot."""
@@ -208,29 +221,39 @@ class NightRun:
             print(f"note: uncommitted work was auto-committed to {branch}")
 
     def _qa_pass(self, order: factory.WorkOrder, wt_path: Path,
-                 branch: str, base: str) -> tuple[int, str, str]:
-        """Advisory second pass: verify, don't trust. Returns (rc, raw, report)."""
+                 branch: str, base: str) -> tuple[int, str, str, bool]:
+        """Advisory second pass: verify, don't trust. The QA manual says
+        read-only. The tip guard keeps the branch intact even when the QA
+        model misbehaves. Returns (rc, raw, report, tip_moved)."""
         prompt = (f"QA pre-shift for work order {order.id}: the night shift "
                   f"implemented it on branch {branch}, checked out here. "
                   f"Review it against {base}. Follow the QA manual.\n\n"
                   f"# Work order {order.id}\n\n{order.path.read_text()}")
         ref = self.sessions.ref(f"{self.engine_name}:qa:{order.id}")
-        argv, new_ref = self.engine.build_command(
+        argv, new_ref, stdin_text = self.engine.build_command(
             self.qa_system_prompt, prompt, f"qa-{order.id}", ref,
             json_audit=self.json_audit)
         print(f"QA pre-shift reviewing wo-{order.id} ...")
-        rc, raw, _ = self._agent_pass(argv, wt_path)
+        tip_before = factory.git_out(wt_path, "rev-parse", "HEAD")
+        rc, raw, _ = self._agent_pass(argv, wt_path, stdin_text)
         new_ref = new_ref or self.engine.ref_from_output(raw)
         if new_ref:
             self.sessions.set_ref(f"{self.engine_name}:qa:{order.id}", new_ref)
+        moved = factory.git_out(wt_path, "rev-parse", "HEAD") != tip_before
+        if moved:
+            print(f"QA moved the branch tip on wo-{order.id} — resetting to "
+                  f"the agent's tip")
+            factory.git(wt_path, "reset", "--quiet", "--hard", tip_before)
         report = self.engine.extract_report(raw) if self.json_audit else raw
         print(f"QA pre-shift done (exit {rc})")
-        return rc, raw, report
+        return rc, raw, report, moved
 
     # ------------------------------------------------------- bookkeeping
 
-    def _lint_block(self, order: factory.WorkOrder,
-                    problems: list[str]) -> str:
+    def _block_order(self, order: factory.WorkOrder,
+                     problems: list[str]) -> None:
+        """Block one malformed order. No commit here: the caller batches all
+        lint blocks into one commit and keeps the night running."""
         print(f"\n=== wo-{order.id} : {order.rel}  ->  BLOCKED by lint ===")
         for p in problems:
             print(f"  - {p}")
@@ -239,20 +262,22 @@ class NightRun:
         order.append(f"\n### {datetime.now():%Y-%m-%d %H:%M} — blocked by lint\n\n")
         order.append(report)
         order.set_status("blocked")
-        factory.git(self.root, "add", str(order.rel), "night-shift/logs")
-        factory.git(self.root, "commit", "-q", "-m",
-                    f"night-shift: wo-{order.id} -> blocked (lint)")
+        with self.run_log.open("a") as f:
+            f.write(f"\n## {datetime.now():%H:%M} lint-block\n")
+            f.write(f"- wo-{order.id} ({order.rel}): blocked — "
+                    f"{len(problems)} problem(s)\n")
         print(f"wo-{order.id} -> blocked (lint)")
-        return "blocked"
 
     def _bookkeep(self, order: factory.WorkOrder, repo: factory.TargetRepo,
                   new_status: str, report: str, run_err: str, rc: int,
                   secs: int, raw_events: str, qa_rc: int | None,
-                  qa_raw: str, qa_report: str) -> str:
+                  qa_raw: str, qa_report: str, qa_moved: bool = False,
+                  no_commits: bool = False) -> str:
         outfile = self.logs / f"{self.today}-wo-{order.id}.out.md"
         errfile = self.logs / f"{self.today}-wo-{order.id}.err.log"
         outfile.write_text(report)
-        errfile.write_text("" if rc == 0 else run_err)
+        if run_err:
+            errfile.write_text(run_err)
         if self.json_audit:
             (self.logs / f"{self.today}-wo-{order.id}.events.jsonl"
              ).write_text(raw_events)
@@ -263,13 +288,21 @@ class NightRun:
                      f"(engine {self.engine_name}, target {repo.display()}), "
                      f"exit {rc} ({secs}s)\n\n")
         order.append(report)
+        if no_commits:
+            order.append("\n> the agent left no commits on the branch — "
+                         "marked blocked, nothing to review\n")
         if rc != 0:
-            order.append(f"\n> run FAILED (exit {rc}). "
-                         f"stderr: {errfile.relative_to(self.root)}\n")
+            note = f"\n> run FAILED (exit {rc})."
+            if run_err:
+                note += f" stderr: {errfile.relative_to(self.root)}\n"
+            order.append(note + "\n")
         if qa_rc is not None:
             order.append(f"\n---\n\n### QA pre-shift "
                          f"(engine {self.engine_name}, exit {qa_rc})\n\n")
             order.append(qa_report or "(empty QA report)")
+        if qa_moved:
+            order.append("\n> the QA pass modified the branch. The runner "
+                         "reset it to the agent's tip\n")
 
         order.set_status(new_status)
 
@@ -302,7 +335,8 @@ class NightRun:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Execute approved work orders (night shift).")
     ap.add_argument("--engine", default=os.environ.get("FACTORY_ENGINE", "pi"),
-                    help="host agent: pi (default) or claude; env FACTORY_ENGINE")
+                    help="host agent: pi, claude or opencode (default pi). "
+                         "env FACTORY_ENGINE")
     ap.add_argument("--repo", default=None, metavar="REPO",
                     help="only process orders for this repo (path or git URL)")
     ap.add_argument("--max-orders", type=int, default=1,

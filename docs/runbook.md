@@ -16,9 +16,10 @@
 4. Make an initial commit: the night runner needs a clean tree on `main` with
    at least one commit.
 5. Smoke-test: `python3 night-shift/run.py --dry-run`
-6. When the loop is trusted, let nights start themselves:
-   `python3 night-shift/schedule.py install` (fires nightly, harmlessly no-ops
-   on an empty queue; `remove` undoes it, `status` shows the entry).
+6. When you trust the loop, let nights start themselves:
+   `python3 night-shift/schedule.py install [--engine pi|claude|opencode]`
+   (fires nightly, harmlessly no-ops on an empty queue, `remove` undoes it,
+   `status` shows the entry).
 
 > The runner invokes pi with `--approve`, which trusts project-local
 > configuration so the night can run unattended. Only run the night shift in

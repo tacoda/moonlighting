@@ -24,7 +24,7 @@ flowchart TD
         S["01:17 cron fires\nrun.py --max-orders 3"] --> T{"approved orders?"}
         T -->|"none"| U["log the no-op\nexit 0 — zero tokens"]
         T -->|"yes"| V["lint gate"]
-        V -->|"malformed"| W["blocked — no tokens spent\nrun stops"]
+        V -->|"malformed"| W["blocked — no tokens spent\nhealthy orders still run"]
         V -->|"clean"| X["throwaway worktree\nbranch wo/NNN from local main"]
         X --> Y["engine pass\npi, claude or opencode, headless"]
         Y --> Z["QA pre-shift\nSHIP / BLOCK / UNSURE"]

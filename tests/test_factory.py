@@ -3,6 +3,7 @@
 Run with: uv run pytest
 """
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -12,6 +13,12 @@ from pathlib import Path
 import pytest
 
 import factory
+
+_nightrun_path = Path(__file__).resolve().parents[1] / "night-shift" / "run.py"
+_spec = importlib.util.spec_from_file_location("nightrun", _nightrun_path)
+assert _spec is not None and _spec.loader is not None
+nightrun = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(nightrun)
 
 ORDER = """---
 id: 001
@@ -138,48 +145,58 @@ def test_engine_unknown():
 
 
 def test_pi_command():
-    argv, ref = factory.engine("pi").build_command(SYSTEM, PROMPT, "wo-001", None)
+    argv, ref, stdin_text = factory.engine("pi").build_command(
+        SYSTEM, PROMPT, "wo-001", None)
     assert argv[0] == "pi"
     assert "--print" in argv
     assert "--approve" in argv
     assert "--mode" in argv and "json" in argv
     assert "--session-id" in argv and "wo-001" in argv
-    assert argv[-1] == PROMPT
+    assert PROMPT not in argv
+    assert stdin_text == PROMPT
     assert ref is None
 
 
 def test_pi_command_no_audit():
-    argv, _ = factory.engine("pi").build_command(SYSTEM, PROMPT, "wo-001", None,
-                                                 json_audit=False)
+    argv, _, stdin_text = factory.engine("pi").build_command(
+        SYSTEM, PROMPT, "wo-001", None, json_audit=False)
     assert "--mode" not in argv
+    assert stdin_text == PROMPT
 
 
 def test_claude_command_new_session():
-    argv, ref = factory.engine("claude").build_command(SYSTEM, PROMPT, "x", None)
+    argv, ref, stdin_text = factory.engine("claude").build_command(
+        SYSTEM, PROMPT, "x", None)
     assert "--resume" not in argv
     index = argv.index("--session-id")
     assert argv[index + 1] == ref
+    assert PROMPT not in argv
+    assert stdin_text == PROMPT
 
 
 def test_claude_command_resume():
-    argv, ref = factory.engine("claude").build_command(SYSTEM, PROMPT, "x",
-                                                       "uuid-1")
+    argv, ref, stdin_text = factory.engine("claude").build_command(
+        SYSTEM, PROMPT, "x", "uuid-1")
     assert "--resume" in argv and "uuid-1" in argv
     assert ref == "uuid-1"
+    assert stdin_text == PROMPT
 
 
 def test_opencode_command_new_session():
-    argv, ref = factory.engine("opencode").build_command(SYSTEM, PROMPT, "x", None)
+    argv, ref, stdin_text = factory.engine("opencode").build_command(
+        SYSTEM, PROMPT, "x", None)
     assert argv[:4] == ["opencode", "run", "--auto", "--archived"]
     assert "--session" not in argv
-    assert argv[-1] == f"{SYSTEM}\n\n---\n\n{PROMPT}"
+    assert PROMPT not in argv
+    assert stdin_text == f"{SYSTEM}\n\n---\n\n{PROMPT}"
     assert ref is None
 
 
 def test_opencode_command_resume():
-    argv, _ = factory.engine("opencode").build_command(SYSTEM, PROMPT, "x",
-                                                       "ses_abc")
+    argv, _, stdin_text = factory.engine("opencode").build_command(
+        SYSTEM, PROMPT, "x", "ses_abc")
     assert argv[argv.index("--session") + 1] == "ses_abc"
+    assert stdin_text == f"{SYSTEM}\n\n---\n\n{PROMPT}"
 
 
 def test_opencode_ref_from_output():
@@ -354,3 +371,132 @@ def test_git_failure_raises_factory_error(tmp_path):
 def test_git_check_false_stays_quiet(tmp_path):
     r = factory.git(tmp_path, "rev-parse", "--show-toplevel", check=False)
     assert r.returncode != 0
+
+
+# ------------------------------------------------ should-fix batch
+
+
+def test_run_under_timeout_feeds_stdin(tmp_path):
+    stub = tmp_path / "upper.py"
+    stub.write_text("import sys\nsys.stdout.write(sys.stdin.read().upper())\n")
+    out = tmp_path / "out"
+    err = tmp_path / "err.log"
+    rc = factory.run_under_timeout([sys.executable, str(stub)], tmp_path, 10,
+                                   out, err, input_text="hello")
+    assert rc == 0
+    assert out.read_text() == "HELLO"
+
+
+def test_run_under_timeout_kills_process_group(tmp_path):
+    pidfile = tmp_path / "child.pid"
+    stub = tmp_path / "stub.py"
+    stub.write_text(
+        "import subprocess\nimport time\n"
+        "child = subprocess.Popen(['sleep', '60'])\n"
+        f"open({str(pidfile)!r}, 'w').write(str(child.pid))\n"
+        "time.sleep(60)\n")
+    out = tmp_path / "out"
+    err = tmp_path / "err.log"
+    rc = factory.run_under_timeout([sys.executable, str(stub)], tmp_path, 1,
+                                   out, err)
+    assert rc == 124
+    child = int(pidfile.read_text())
+    for _ in range(50):
+        if not factory.pid_alive(child):
+            break
+        time.sleep(0.1)
+    assert not factory.pid_alive(child)
+
+
+def test_resolve_rejects_wrong_remote(tmp_path):
+    clone = tmp_path / "repos" / "other"
+    clone.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(clone)], check=True)
+    subprocess.run(["git", "-C", str(clone), "remote", "add", "origin",
+                    "https://example.com/wrong.git"], check=True)
+    with pytest.raises(factory.FactoryError) as excinfo:
+        factory.TargetRepo.resolve(tmp_path, "https://example.com/other.git")
+    assert "holds" in str(excinfo.value)
+
+
+def test_resolve_rejects_wrong_remote_soft(tmp_path):
+    clone = tmp_path / "repos" / "other"
+    clone.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(clone)], check=True)
+    subprocess.run(["git", "-C", str(clone), "remote", "add", "origin",
+                    "https://example.com/wrong.git"], check=True)
+    assert factory.TargetRepo.resolve(tmp_path, "https://example.com/other.git",
+                                      soft=True) is None
+
+
+def test_resolve_accepts_matching_remote(tmp_path):
+    clone = tmp_path / "repos" / "other"
+    clone.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(clone)], check=True)
+    subprocess.run(["git", "-C", str(clone), "remote", "add", "origin",
+                    "https://example.com/other.git"], check=True)
+    repo = factory.TargetRepo.resolve(tmp_path, "https://example.com/other.git",
+                                      update=False)
+    assert repo is not None
+    assert repo.path == clone
+
+
+GOOD_APPROVED = ORDER.replace("status: draft", "status: approved")
+BROKEN_APPROVED = (ORDER.replace("status: draft", "status: approved")
+                   .replace("id: 001", "id: 002")
+                   .replace("- Step one.\n", ""))
+
+
+def test_collect_splits_healthy_from_problems(tmp_path):
+    (tmp_path / "work-orders").mkdir()
+    (tmp_path / "night-shift").mkdir()
+    (tmp_path / "night-shift" / "NIGHT-SHIFT.md").write_text("# manual\n")
+    (tmp_path / "night-shift" / "QA-SHIFT.md").write_text("# qa\n")
+    (tmp_path / "work-orders" / "001-good.md").write_text(GOOD_APPROVED)
+    (tmp_path / "work-orders" / "002-bad.md").write_text(BROKEN_APPROVED)
+    night = nightrun.NightRun(tmp_path, "pi", None, 5, True, 60)
+    healthy, problems, skipped = night.collect()
+    assert [o.id for o, _ in healthy] == ["001"]
+    assert [o.id for o, _ in problems] == ["002"]
+    assert skipped == 0
+
+
+def _git(path, *args):
+    subprocess.run(["git", "-C", str(path), *args], check=True,
+                   capture_output=True)
+
+
+def test_accept_external_merge_keeps_the_checkout(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    factory_root = make_git_repo(tmp_path / "factory")
+    target = make_git_repo(tmp_path / "target")
+    _git(target, "checkout", "-q", "-b", "human-branch")
+    _git(target, "checkout", "-q", "-b", "wo/001", "main")
+    (target / "file.txt").write_text("night work\n")
+    _git(target, "add", "-A")
+    _git(target, "commit", "-q", "-m", "night work")
+    _git(target, "checkout", "-q", "human-branch")
+    wo_dir = factory_root / "work-orders"
+    wo_dir.mkdir()
+    order = (f"---\nid: 001\ntitle: t\nstatus: review\ncreated: 2026-01-01\n"
+             f"repo: {target}\nbranch: wo/001\n---\n\n## Goal\n\ng.\n\n"
+             "## Tasks\n\n- t.\n\n## Acceptance criteria\n\n- a.\n")
+    (wo_dir / "001-test.md").write_text(order)
+    _git(factory_root, "add", "-A")
+    _git(factory_root, "commit", "-q", "-m", "order")
+    script = repo_root / "day-shift" / "accept.py"
+    r = subprocess.run([sys.executable, str(script), "001"], cwd=factory_root,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    main_log = subprocess.run(
+        ["git", "-C", str(target), "log", "--oneline", "main"],
+        capture_output=True, text=True).stdout
+    assert "wo-001" in main_log
+    current = subprocess.run(
+        ["git", "-C", str(target), "branch", "--show-current"],
+        capture_output=True, text=True).stdout.strip()
+    assert current == "human-branch"
+    worktrees = subprocess.run(
+        ["git", "-C", str(target), "worktree", "list"],
+        capture_output=True, text=True).stdout
+    assert worktrees.count("\n") == 1

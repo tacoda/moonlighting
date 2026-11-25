@@ -15,9 +15,11 @@ clean_tree, parse_order, set_status, die.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
+import signal
 import subprocess
 import time
 import uuid
@@ -58,6 +60,36 @@ def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProces
     if check and r.returncode != 0:
         die(f"git {' '.join(args)} failed: {(r.stderr or r.stdout).strip()}")
     return r
+
+
+def run_under_timeout(argv: list[str], cwd: Path, timeout_secs: int,
+                      out_path: Path, err_path: Path,
+                      input_text: str | None = None,
+                      not_found_hint: str = "") -> int:
+    """Run argv with output redirected to out_path and err_path. Feed
+    input_text on stdin. On timeout, kill the whole process group, so
+    engine children cannot outlive the run. Returns the exit code, 124 on
+    timeout."""
+    try:
+        with out_path.open("w") as out, err_path.open("w") as err:
+            proc = subprocess.Popen(
+                argv, cwd=cwd, stdout=out, stderr=err,
+                stdin=(subprocess.PIPE if input_text is not None
+                       else subprocess.DEVNULL),
+                start_new_session=True)
+            try:
+                proc.communicate(
+                    input_text.encode() if input_text is not None else None,
+                    timeout=timeout_secs)
+                return proc.returncode
+            except subprocess.TimeoutExpired:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                proc.wait()
+                return 124
+    except FileNotFoundError:
+        die(f"engine executable not found: {argv[0]} {not_found_hint}".strip(),
+            127)
 
 
 def git_out(cwd: Path, *args: str) -> str:
@@ -126,10 +158,12 @@ class Engine:
     def build_command(
         self, system_prompt: str, prompt: str, session_id: str,
         session_ref: str | None, json_audit: bool = True,
-    ) -> tuple[list[str], str | None]:
+    ) -> tuple[list[str], str | None, str | None]:
         """Headless argv for one pass. session_id is the engine-side session
         handle; session_ref resumes a known session (claude). json_audit
-        switches the raw event capture on. Returns (argv, ref_to_remember)."""
+        switches the raw event capture on. The prompt rides on stdin, never
+        on argv: order files grow every cycle, and Linux caps one argv item
+        at 128 KiB. Returns (argv, ref_to_remember, stdin_text)."""
         raise NotImplementedError
 
     def extract_report(self, raw: str) -> str:
@@ -153,7 +187,7 @@ class PiEngine(Engine):
                 "--session-id", session_id]
         if json_audit:
             argv += ["--mode", "json"]
-        return argv + [prompt], None
+        return argv, None, prompt
 
     def extract_report(self, raw: str) -> str:
         last = None
@@ -196,7 +230,7 @@ class ClaudeEngine(Engine):
         else:
             session_ref = str(uuid.uuid4())
             argv += ["--session-id", session_ref]
-        return argv + [prompt], session_ref
+        return argv, session_ref, prompt
 
     def extract_report(self, raw: str) -> str:
         try:
@@ -220,7 +254,7 @@ class OpenCodeEngine(Engine):
         if session_ref:
             argv += ["--session", session_ref]
         # opencode has no --append-system-prompt: the manual rides in the message
-        return argv + [f"{system_prompt}\n\n---\n\n{prompt}"], None
+        return argv, None, f"{system_prompt}\n\n---\n\n{prompt}"
 
     def ref_from_output(self, raw: str) -> str | None:
         # every JSON event carries the host-chosen sessionID (ses_...)
@@ -386,6 +420,16 @@ class TargetRepo:
             name = repo_value.rstrip("/").split("/")[-1].removesuffix(".git")
             target = repos_dir / name
             if target.exists():
+                wanted = repo_value.rstrip("/").removesuffix(".git")
+                r = git(root, "-C", str(target), "remote", "get-url",
+                        "origin", check=False)
+                remote = r.stdout.strip().rstrip("/").removesuffix(".git")
+                if remote != wanted:
+                    msg = (f"repos/{name} holds '{remote or 'no origin remote'}', "
+                           f"not {repo_value} — remove or rename the directory")
+                    if soft:
+                        return None
+                    die(msg)
                 if update:
                     git(root, "-C", str(target),
                         "fetch", "--quiet", "--all", "--prune")
