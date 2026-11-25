@@ -126,10 +126,18 @@ def new_order_cmd(ctx: typer.Context,
                       False, "--approve",
                       help="Approve the order for tonight right away."),
                   draft: bool = typer.Option(
-                      False, "--draft", help="Leave the order as a draft.")):
+                      False, "--draft", help="Leave the order as a draft."),
+                  body: str | None = typer.Option(
+                      None, "--body",
+                      help="Markdown text appended to the order body."),
+                  body_file: str | None = typer.Option(
+                      None, "--body-file",
+                      help="Read body content from this file. '-' reads "
+                      "stdin.")):
     _forward(ctx, "new_order", [title] if title else [],
              [("--repo", repo), ("--model", model),
-              ("--approve", approve), ("--draft", draft)])
+              ("--approve", approve), ("--draft", draft),
+              ("--body", body), ("--body-file", body_file)])
 
 
 @app.command("night", help="Run every approved order through the nWave guard.",

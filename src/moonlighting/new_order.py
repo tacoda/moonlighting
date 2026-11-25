@@ -18,6 +18,7 @@ import sys
 import time
 import uuid
 from datetime import date
+from pathlib import Path
 
 from . import factory
 
@@ -45,9 +46,15 @@ def main() -> None:
                     help="set status: approved right away")
     ap.add_argument("--draft", action="store_true",
                     help="keep status: draft, skip the approval question")
+    ap.add_argument("--body", default=None,
+                    help="markdown text appended to the order body")
+    ap.add_argument("--body-file", default=None, dest="body_file",
+                    help="read body content from this file ('-' reads stdin)")
     args = ap.parse_args()
     if args.approve and args.draft:
         factory.die("--approve and --draft cannot be combined", 2)
+    if args.body is not None and args.body_file is not None:
+        factory.die("--body and --body-file cannot be combined", 2)
     interactive = sys.stdin.isatty()
 
     def ask(prompt: str) -> str:
@@ -101,6 +108,18 @@ def main() -> None:
     if insert_at is not None:
         lines[insert_at:insert_at] = extra
     text = "\n".join(lines) + "\n"
+
+    body = args.body
+    if args.body_file is not None:
+        if args.body_file == "-":
+            body = sys.stdin.read()
+        else:
+            source = Path(args.body_file).expanduser()
+            if not source.is_file():
+                factory.die(f"body file not found: {source}")
+            body = source.read_text()
+    if body and body.strip():
+        text = text.rstrip("\n") + "\n\n" + body.strip() + "\n"
 
     dest = orders / f"{oid}-{slugify(title)}.md"
     if dest.exists():
