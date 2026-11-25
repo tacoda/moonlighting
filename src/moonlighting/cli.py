@@ -88,9 +88,8 @@ def feedback_cmd(ctx: typer.Context,
     _forward(ctx, "feedback", [order_id, *(message or [])])
 
 
-@app.command("init", help="Verify the nWave guard, offering to install it "
-             "when missing. Then set up the config file and the data dirs.",
-             context_settings=FORWARD)
+@app.command("init", help="Report the bundled nWave guard, then set up "
+             "the config file and the data dirs.", context_settings=FORWARD)
 def init_cmd(ctx: typer.Context):
     _forward(ctx, "setup")
 

@@ -5,8 +5,8 @@
 1. Install pi: `curl -fsSL https://pi.dev/install.sh | sh` (and/or the Claude
    Code CLI, if you want the `claude` engine).
 2. Log the host(s) in: `pi` → `/login`; `claude` login on first run.
-3. Put all hosts under the nWave guard — install once, then activate
-   globally (revert with `nwave-ai mode opt-in`):
+3. Install the guard on the hosts you use, then activate it globally
+   (revert with `nwave-ai mode opt-in`). nwave-ai ships with this package:
 
        nwave-ai install --platform pi
        nwave-ai install --platform claude-code

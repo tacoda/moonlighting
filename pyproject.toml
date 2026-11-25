@@ -1,6 +1,6 @@
 [project]
 name = "moonlighting-factory"
-version = "0.4.4"
+version = "0.4.5"
 description = "A software factory: people decide by day, agents type by night."
 readme = "README.md"
 license = "MIT"
@@ -17,10 +17,15 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Software Development :: Build Tools",
 ]
-dependencies = ["rich", "typer"]
+dependencies = [
+    "rich",
+    "typer",
+    "nwave-ai>=4",
+]
 
 [project.scripts]
 moonlighting = "moonlighting.cli:app"
+nwave-ai = "nwave_ai.cli:main"
 
 [project.urls]
 Repository = "https://github.com/tacoda/moonlighting"
