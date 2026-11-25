@@ -483,7 +483,8 @@ class NightRun:
         qa_model = (order.qa_model or self.flag_qa_model or self.env_qa_model
                     or repo.qa_model or self.cfg_qa_model or model)
         plan_model = (order.plan_model or self.flag_plan_model
-                      or self.env_plan_model or self.cfg_plan_model or None)
+                      or self.env_plan_model or repo.plan_model
+                      or self.cfg_plan_model or None)
         return engine_name, model, qa_model, plan_model
 
 

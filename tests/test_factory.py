@@ -66,6 +66,7 @@ class FakeRepo(factory.TargetRepo):
         self.engine: str | None = None
         self.model: str | None = None
         self.qa_model: str | None = None
+        self.plan_model: str | None = None
 
     def display(self):
         return str(self.path)
@@ -935,6 +936,7 @@ def test_harness_precedence(tmp_path):
     fl = fake_floor()
     shop = FakeRepo(tmp_path / "shop")
     shop.engine, shop.model, shop.qa_model = "claude", "alias-9", "haiku"
+    shop.plan_model = "plank"
     (fl["orders"] / "a1b2c3d-a.md").write_text(
         GOOD_APPROVED.replace("---\n", "---\nrepo: shop\n", 1))
     (fl["orders"] / "b2c3d4e-b.md").write_text(
@@ -944,7 +946,7 @@ def test_harness_precedence(tmp_path):
     night = nightrun.NightRun(fl, None, None, 5, True, 60)
     order_a = factory.WorkOrder(fl["orders"] / "a1b2c3d-a.md")
     order_b = factory.WorkOrder(fl["orders"] / "b2c3d4e-b.md")
-    assert night._harness_for(order_a, shop) == ("claude", "alias-9", "haiku", None)
+    assert night._harness_for(order_a, shop) == ("claude", "alias-9", "haiku", "plank")
     assert night._harness_for(order_b, shop) == ("codex", "gpt-5", "mini", "planner-x")
 
 
