@@ -75,7 +75,7 @@ class FakeRepo(factory.TargetRepo):
         return self.path.name
 
     def env(self):
-        return {}
+        return super().env()
 
     def is_dirty(self):
         return False
@@ -702,24 +702,35 @@ def test_accept_pushes_and_opens_pr(tmp_path, monkeypatch):
     monkeypatch.setattr(factory.TargetRepo, "branch_exists",
                         lambda self, name: True)
     monkeypatch.setattr(factory, "git_out", lambda cwd, *a:
-                        "github.com/acme/shop.git" if "get-url" in a else "3")
+                        "tacoda_github:tacoda/tacoda.github.io"
+                        if "get-url" in a else "3")
     monkeypatch.setattr(factory, "git",
                         lambda cwd, *a, check=True, env=None:
                         pushed.append(a) or _R(0))
     gh_calls = []
 
-    def fake_gh(args):
-        gh_calls.append(args)
-        return _R(0, "https://github.com/acme/shop/pull/7", "")
+    def fake_gh(args, env=None):
+        gh_calls.append((args, env))
+        return _R(0, "https://github.com/tacoda/tacoda.github.io/pull/7", "")
 
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('[profile.work]\ngh-account = "ianparo"\n')
+    monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
+    stub_token = "stub-gh-token"
+    monkeypatch.setattr(factory.subprocess, "run",
+                        lambda *a, **k: _R(0, stub_token))
+    repo.profile_name = "work"
     monkeypatch.setattr(accept, "gh", fake_gh)
     monkeypatch.setattr(sys, "argv", ["moonlighting", "a1b2c3d"])
     accept.main()
     text = (fl["orders"] / "a1b2c3d-x.md").read_text()
     assert "status: review" in text
-    assert "PR opened: https://github.com/acme/shop/pull/7" in text
+    assert "PR opened: https://github.com/tacoda/tacoda.github.io/pull/7" in text
     assert ("push", "origin", "wo/a1b2c3d") in pushed
-    assert gh_calls[0][0] == "pr" and "--head" in gh_calls[0]
+    args, env = gh_calls[0]
+    assert args[0] == "pr" and "--head" in args
+    assert "--repo" in args and "tacoda/tacoda.github.io" in args
+    assert env.get("GH_TOKEN") == stub_token
 
 
 def test_accept_refuses_draft(tmp_path, capsys):
@@ -1140,6 +1151,14 @@ def test_target_repo_harness_fields(tmp_path):
     assert repo.model is None
     assert repo.qa_model is None
     assert repo.plan_model is None
+
+
+def test_github_slug_handles_host_aliases():
+    slug = accept.github_slug
+    assert slug("git@github.com:acme/shop.git") == "acme/shop"
+    assert slug("https://github.com/acme/shop.git") == "acme/shop"
+    assert slug("tacoda_github:tacoda/tacoda.github.io") == "tacoda/tacoda.github.io"
+    assert slug("/srv/bare/repo") == "bare/repo"
 
 
 def test_schedule_at_validation(tmp_path, monkeypatch):

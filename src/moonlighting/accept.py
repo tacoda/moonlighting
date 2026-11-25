@@ -7,25 +7,33 @@ merge to you.
 
 from __future__ import annotations
 
+import os
+import re
 import subprocess
 import sys
 
 from . import factory
 
 
-def gh(args: list[str]) -> subprocess.CompletedProcess:
+def gh(args: list[str],
+       env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+    """Run the gh CLI under the repo profile's identity via GH_TOKEN."""
+    full_env = {**os.environ, **env} if env else None
     try:
-        return subprocess.run(["gh", *args], capture_output=True, text=True)
+        return subprocess.run(["gh", *args], capture_output=True, text=True,
+                              env=full_env)
     except FileNotFoundError:
         factory.die("gh not found — install the GitHub CLI to open PRs")
 
 
 def github_slug(url: str) -> str | None:
-    """owner/name from a github remote URL, https or ssh, else None."""
-    for marker in ("github.com/", "github.com:"):
-        if marker in url:
-            return url.split(marker, 1)[1].removesuffix(".git").strip("/")
-    return None
+    """owner/name from a remote URL. Works for https, ssh and ssh host
+    aliases: everything before the last two segments is host noise."""
+    cleaned = url.rstrip("/").removesuffix(".git")
+    parts = re.split(r"[:/]", cleaned)
+    if len(parts) < 2:
+        return None
+    return "/".join(parts[-2:])
 
 
 def pr_body(order: factory.WorkOrder) -> str:
@@ -72,7 +80,8 @@ def main() -> None:
     origin = factory.git_out(repo.path, "remote", "get-url", "origin")
     slug = github_slug(origin)
     if not slug:
-        factory.die(f"{t_display} has no GitHub origin — a PR needs one")
+        factory.die(f"could not read owner/name from the origin of "
+                    f"{t_display}: {origin}")
 
     env = repo.env()
     factory.git(repo.path, "push", "origin", branch, env=env)
@@ -81,10 +90,10 @@ def main() -> None:
     pr = gh(["pr", "create", "--repo", slug, "--base", base,
              "--head", branch,
              "--title", f"wo-{oid}: {title}",
-             "--body", pr_body(order)])
+             "--body", pr_body(order)], env=env)
     if pr.returncode != 0 and "already exists" in pr.stderr:
         pr = gh(["pr", "view", branch, "--repo", slug,
-                 "--json", "url", "-q", ".url"])
+                 "--json", "url", "-q", ".url"], env=env)
     if pr.returncode != 0:
         print(pr.stderr.strip())
         factory.die("gh failed after the push — open the PR by hand")
