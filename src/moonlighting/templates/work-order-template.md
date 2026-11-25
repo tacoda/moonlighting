@@ -43,8 +43,9 @@ Frontmatter fields:
 <!--
   created YYYY-MM-DD
   branch  optional, defaults to wo/<id>
-  repo    optional, default is this factory. A path or a git URL.
-          URLs are cloned under repos/ and refreshed each night.
+  repo    needed for a night run: a config binding name, a path, or a
+          git URL. URLs are cloned under the data directory's repos/ and
+          refreshed each night.
   model   optional, passed verbatim to the selected engine (syntax
           differs per host, see the README engines table). Leave it
           out for the host default.

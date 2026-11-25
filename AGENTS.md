@@ -13,8 +13,6 @@ from the user's config and data directories, not from a checkout.
 - `tests/` — fake-based pytest suite. Run with `uv run pytest`. No git
   repos, no network
 - `docs/` — runbook, flow diagrams, config sample
-- `work-orders/` — archived orders from the pre-package era. History only.
-  Never edit
 - `PLAN.md` — phased roadmap
 
 ## Where user state lives (never in this repo)

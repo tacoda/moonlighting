@@ -42,10 +42,11 @@
   malformed orders (missing fields, empty sections, bad repo paths) before
   they spend tokens. The night runner also lint-blocks approved orders
   automatically.
-- Target another repo with the `repo:` frontmatter field: a path
-  (`repo: ~/repos/shop`) or a git URL (`repo: https://github.com/acme/api.git`,
-  cloned under `repos/` and refreshed each night). Omit it to target this
-  factory itself.
+- Target another repo with the `repo:` frontmatter field. The value is a
+  config binding name, a path (`repo: ~/repos/shop`), or a git URL
+  (`repo: https://github.com/acme/api.git`). URLs are cloned under the data
+  directory's `repos/` and refreshed each night. An order without `repo:`
+  is blocked before the night starts.
 - Pick the model per order with a `model:` frontmatter field. The string
   passes verbatim to the selected engine (syntax per host: see the README
   engines table). Leave it out for the host default.
@@ -120,13 +121,13 @@
 
 ## Conventions
 
-- `main` moves by day-shift squash-merges only — plus night bookkeeping
-  commits (status flips, logs), which never contain code. Same for every
-  target repo's main.
-- Agents never edit `work-orders/`; the runner appends reports and flips
+- `main` in a target repo moves by day-shift squash-merges only. The
+  runner never commits there. Status flips and logs are file writes under
+  the data directory.
+- Agents never edit order files. The runner appends reports and flips
   statuses.
-- The factory tracks order files in `work-orders/`. `FACTORY_ORDERS_DIR`
-  relocates them (tracking there is then your setup's job).
+- Order files live under the data directory's `orders/`.
+  `FACTORY_ORDERS_DIR` (or config `orders-dir`) relocates them.
 - Logs are append-only. They are the factory's memory; never delete them.
   `day-shift/rotate-logs.py --days 90 --write` gzips old files into
   `logs/archive/` without losing content.

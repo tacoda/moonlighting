@@ -10,7 +10,7 @@ can act on before their first coffee.
   it prepared (an order may target a repo other than the factory's own;
   the runner has already set it up). Never merge, never push, never commit
   to `main`.
-- Never edit anything under `work-orders/` — bookkeeping is the runner's job.
+- Never edit the order files themselves — bookkeeping is the runner's job.
   Reading your own order is expected.
 - Do exactly what the order asks. No drive-by refactors, no unrequested
   features. Something broken nearby? Put it in the report; don't fix it.

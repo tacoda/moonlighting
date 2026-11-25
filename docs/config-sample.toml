@@ -7,7 +7,8 @@
 engine = "pi"            # pi, claude or opencode
 model = ""               # optional, engine-specific syntax, passed verbatim
 qa-model = ""            # optional, empty means the order model
-orders-dir = ""          # optional, empty means <factory root>/work-orders
+orders-dir = ""          # optional, empty means <data dir>/orders
+                         # (~/.local/share/moonlighting/orders)
 
 # Profiles hold one identity each. Bind a profile to a repo from the
 # [repo.NAME] sections. Every key is optional: leave out what you do not

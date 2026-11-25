@@ -6,8 +6,8 @@ for the run: pi, Claude Code or opencode.
 
 ## How it works
 
-Work moves through the factory as **work orders** — small markdown files in
-`work-orders/` whose `status:` line is the contract between the shifts.
+Work moves through the factory as **work orders** — small markdown files
+whose `status:` line is the contract between the shifts.
 Marking an order `approved` is a standing instruction: tonight, an agent
 executes it autonomously. In the morning it sits at `review` — with a report,
 a branch, and a diff, waiting for a human decision.
@@ -68,7 +68,6 @@ docs/runbook.md         shift checklists (morning, handover, forensics)
 docs/flow.md            mermaid diagrams: the day/night work flow
 docs/config-sample.toml every config key, commented
 docs/work-order-template.md  how orders are written (reference copy)
-work-orders/            archived orders from the repo's pre-package era
 PLAN.md                 phased roadmap
 pyproject.toml          uv project; publishes the moonlighting command
 AGENTS.md               standing instructions for any agent in this repo

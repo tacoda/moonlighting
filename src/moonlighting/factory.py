@@ -494,8 +494,8 @@ class WorkOrder:
 
 
 class TargetRepo:
-    """A resolved target repository: the factory itself, a local path, or a
-    URL clone living under <factory>/repos/."""
+    """A resolved target repository: a config binding name, a local path,
+    or a URL clone living under the data directory's repos/."""
 
     def __init__(self, path: Path, profile_name: str = ""):
         self.path = path
