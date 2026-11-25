@@ -57,8 +57,8 @@ class _R:
         self.returncode, self.stdout, self.stderr = code, out, err
 
 
-class FakeRepo:
-    """Duck-typed TargetRepo: every git answer is canned."""
+class FakeRepo(factory.TargetRepo):
+    """TargetRepo subclass: every git answer is canned."""
 
     def __init__(self, path):
         self.path = Path(path)
@@ -912,6 +912,7 @@ def test_repo_binding_harness_fields(tmp_path, monkeypatch):
     monkeypatch.setenv("MOONLIGHTING_CONFIG", str(cfg))
     monkeypatch.setattr(factory.subprocess, "run", lambda *a, **k: _R(0))
     repo = factory.TargetRepo.resolve("demo")
+    assert repo is not None
     assert repo.engine == "claude"
     assert repo.model == "alias-9"
     assert repo.qa_model == "haiku"

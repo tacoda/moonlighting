@@ -109,10 +109,14 @@ Pick per run with `--engine` (or `FACTORY_ENGINE`). Every harness runs
 under the nWave tool-call guard (`nwave-ai mode all`). Agent commits carry nWave
 attribution.
 
-Set the model in three places, most specific first: a `model:` field,
-`--model` (or `FACTORY_MODEL`), or the host default. The string passes
-verbatim to the selected engine. Write it in that engine's syntax from the
-table. Each run header records the model that ran.
+Set the model in four places, most specific first: a `model:` field,
+`--model` (or `FACTORY_MODEL`), the target repo's binding, or the
+`[factory]` section. The string passes verbatim to the selected engine.
+Write it in that engine's syntax from the table. Each run header records
+the model that ran. The same chain picks the harness: an `engine:` field,
+then `--engine` (or `FACTORY_ENGINE`), then the repo binding, then
+`[factory]`, then pi. A `qa-model:` field follows the same chain for the
+QA pass.
 
 The QA pass can run its own model. Use `--qa-model` (or env
 `FACTORY_QA_MODEL`). Without it, QA uses the order model.
