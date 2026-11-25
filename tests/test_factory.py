@@ -6,6 +6,7 @@ Run with: uv run pytest
 import gzip
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 import time
@@ -23,7 +24,7 @@ nightrun = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(nightrun)
 
 ORDER = """---
-id: 001
+id: a1b2c3d
 title: Test order
 status: draft
 created: 2026-01-01
@@ -46,7 +47,7 @@ SYSTEM = "be brief"
 PROMPT = "do it"
 
 
-def make_order(tmp_path, text=ORDER, name="001-test.md"):
+def make_order(tmp_path, text=ORDER, name="a1b2c3d-test.md"):
     path = tmp_path / name
     path.write_text(text)
     return factory.WorkOrder(path, tmp_path)
@@ -56,10 +57,10 @@ def make_order(tmp_path, text=ORDER, name="001-test.md"):
 
 
 def test_parse_order_fields(tmp_path):
-    path = tmp_path / "001-test.md"
+    path = tmp_path / "a1b2c3d-test.md"
     path.write_text(ORDER)
     fields = factory.parse_order(path)
-    assert fields["id"] == "001"
+    assert fields["id"] == "a1b2c3d"
     assert fields["status"] == "draft"
     assert fields["created"] == "2026-01-01"
 
@@ -95,7 +96,7 @@ def test_lint_clean_order(tmp_path):
 
 
 def test_lint_missing_and_bad_fields(tmp_path):
-    text = ORDER.replace("id: 001", "").replace("status: draft", "status: nope")
+    text = ORDER.replace("id: a1b2c3d", "").replace("status: draft", "status: nope")
     problems = "\n".join(make_order(tmp_path, text).lint())
     assert "id: missing" in problems
     assert "status: 'nope'" in problems
@@ -126,7 +127,7 @@ def test_lint_unresolvable_repo_path(tmp_path):
 
 
 def test_branch_default_and_override(tmp_path):
-    assert make_order(tmp_path).branch == "wo/001"
+    assert make_order(tmp_path).branch == "wo/a1b2c3d"
     text = ORDER.replace("---\n", "---\nbranch: custom\n", 1)
     assert make_order(tmp_path, text).branch == "custom"
 
@@ -451,7 +452,7 @@ def test_resolve_accepts_matching_remote(tmp_path):
 
 GOOD_APPROVED = ORDER.replace("status: draft", "status: approved")
 BROKEN_APPROVED = (ORDER.replace("status: draft", "status: approved")
-                   .replace("id: 001", "id: 002")
+                   .replace("id: a1b2c3d", "id: b2c3d4e")
                    .replace("- Step one.\n", ""))
 
 
@@ -460,12 +461,12 @@ def test_collect_splits_healthy_from_problems(tmp_path):
     (tmp_path / "night-shift").mkdir()
     (tmp_path / "night-shift" / "NIGHT-SHIFT.md").write_text("# manual\n")
     (tmp_path / "night-shift" / "QA-SHIFT.md").write_text("# qa\n")
-    (tmp_path / "work-orders" / "001-good.md").write_text(GOOD_APPROVED)
-    (tmp_path / "work-orders" / "002-bad.md").write_text(BROKEN_APPROVED)
+    (tmp_path / "work-orders" / "a1b2c3d-good.md").write_text(GOOD_APPROVED)
+    (tmp_path / "work-orders" / "b2c3d4e-bad.md").write_text(BROKEN_APPROVED)
     night = nightrun.NightRun(tmp_path, "pi", None, 5, True, 60)
     healthy, problems, skipped = night.collect()
-    assert [o.id for o, _ in healthy] == ["001"]
-    assert [o.id for o, _ in problems] == ["002"]
+    assert [o.id for o, _ in healthy] == ["a1b2c3d"]
+    assert [o.id for o, _ in problems] == ["b2c3d4e"]
     assert skipped == 0
 
 
@@ -524,13 +525,13 @@ def test_run_empty_filter_lists_other_repos(tmp_path, capsys):
     (tmp_path / "night-shift" / "NIGHT-SHIFT.md").write_text("# manual\n")
     (tmp_path / "night-shift" / "QA-SHIFT.md").write_text("# qa\n")
     order = GOOD_APPROVED.replace("---\n", f"---\nrepo: {shop}\n", 1)
-    (tmp_path / "work-orders" / "001-shop.md").write_text(order)
+    (tmp_path / "work-orders" / "a1b2c3d-shop.md").write_text(order)
     night = nightrun.NightRun(tmp_path, "pi", str(other), 5, True, 60)
     night.run()
     out = capsys.readouterr().out
     assert "nothing approved for this repo" in out
     assert "approved orders exist for other repos" in out
-    assert "001" in out and str(shop) in out
+    assert "a1b2c3d" in out and str(shop) in out
 
 
 def test_preflight_failure_lands_in_errors_log(tmp_path):
@@ -554,6 +555,44 @@ def test_lint_rejects_model_with_whitespace(tmp_path):
     text = ORDER.replace("---\n", "---\nmodel: claude opus\n", 1)
     problems = make_order(tmp_path, text).lint()
     assert any("model" in p for p in problems)
+
+
+def test_lint_rejects_bad_id_format(tmp_path):
+    text = ORDER.replace("id: a1b2c3d", "id: zebra-12")
+    problems = make_order(tmp_path, text).lint()
+    assert any("7-char hex sha" in p for p in problems)
+
+
+def test_new_order_approve_flag(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    root = make_git_repo(tmp_path / "f")
+    (root / "work-orders").mkdir()
+    docs = root / "docs"
+    docs.mkdir()
+    template = repo_root / "docs" / "work-order-template.md"
+    (docs / "work-order-template.md").write_text(template.read_text())
+    script = repo_root / "day-shift" / "new-order.py"
+    r = subprocess.run([sys.executable, str(script), "Quick", "--approve"],
+                       cwd=root, capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL)
+    assert r.returncode == 0, r.stderr
+    created = list((root / "work-orders").glob("*-quick.md"))
+    assert len(created) == 1
+    sha = created[0].name.split("-")[0]
+    assert re.fullmatch(r"[0-9a-f]{7}", sha)
+    text = created[0].read_text()
+    assert "status: approved" in text
+    assert "the night picks it up" in r.stdout
+
+
+def test_new_order_requires_title_when_not_interactive(tmp_path):
+    script = Path(__file__).resolve().parents[1] / "day-shift" / "new-order.py"
+    root = make_git_repo(tmp_path / "f")
+    r = subprocess.run([sys.executable, str(script)], cwd=root,
+                       capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL)
+    assert r.returncode == 2
+    assert "not running interactively" in r.stderr
 
 
 def test_orders_dir_env_override(tmp_path, monkeypatch):
@@ -583,16 +622,16 @@ def test_morning_digest_lists_review_and_blocked(tmp_path):
     review += ("\n### 04:00 — night run (engine pi), exit 0 (9s)\n\nreport\n\n"
                "---\n\n### QA pre-shift (engine pi, exit 0)\n\n"
                "**Verdict** — SHIP\n")
-    (tmp_path / "work-orders" / "001-a.md").write_text(review)
+    (tmp_path / "work-orders" / "a1b2c3d-a.md").write_text(review)
     blocked = (ORDER.replace("status: draft", "status: blocked")
-               .replace("id: 001", "id: 002"))
-    (tmp_path / "work-orders" / "002-b.md").write_text(blocked)
+               .replace("id: a1b2c3d", "id: b2c3d4e"))
+    (tmp_path / "work-orders" / "b2c3d4e-b.md").write_text(blocked)
     night = nightrun.NightRun(tmp_path, "pi", None, 5, True, 60)
     night._write_morning_digest()
     digest = tmp_path / "night-shift" / "logs" / f"{night.today}-morning.md"
     text = digest.read_text()
-    assert "001" in text and "SHIP" in text
-    assert "002" in text and "blocked" in text
+    assert "a1b2c3d" in text and "SHIP" in text
+    assert "b2c3d4e" in text and "blocked" in text
 
 
 def test_rotate_logs_roundtrip(tmp_path):
@@ -628,18 +667,23 @@ def test_new_order_creates_filled_ids(tmp_path):
     (docs / "work-order-template.md").write_text(template.read_text())
     script = repo_root / "day-shift" / "new-order.py"
     r = subprocess.run([sys.executable, str(script), "Atom: feed!"],
-                       cwd=root, capture_output=True, text=True)
+                       cwd=root, capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL)
     assert r.returncode == 0, r.stderr
-    first = root / "work-orders" / "001-atom-feed.md"
-    assert first.exists()
-    text = first.read_text()
-    assert "id: 001" in text and "title: Atom: feed!" in text
+    first = list((root / "work-orders").glob("*-atom-feed.md"))
+    assert len(first) == 1
+    sha = first[0].name.split("-")[0]
+    assert re.fullmatch(r"[0-9a-f]{7}", sha)
+    text = first[0].read_text()
+    assert f"id: {sha}" in text and "title: Atom: feed!" in text
     assert f"created: {date.today().isoformat()}" in text
-    assert "branch: wo/001" in text
+    assert f"branch: wo/{sha}" in text
     r2 = subprocess.run([sys.executable, str(script), "Second thing"],
                         cwd=root, capture_output=True, text=True)
     assert r2.returncode == 0, r2.stderr
-    assert (root / "work-orders" / "002-second-thing.md").exists()
+    second = list((root / "work-orders").glob("*-second-thing.md"))
+    assert len(second) == 1
+    assert second[0].name.split("-")[0] != sha
 
 
 def test_new_order_repo_and_model_fields(tmp_path):
@@ -655,9 +699,11 @@ def test_new_order_repo_and_model_fields(tmp_path):
     r = subprocess.run(
         [sys.executable, str(script), "Chore", "--repo", str(target),
          "--model", "x/y:high"],
-        cwd=root, capture_output=True, text=True)
+        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     assert r.returncode == 0, r.stderr
-    text = (root / "work-orders" / "001-chore.md").read_text()
+    created = list((root / "work-orders").glob("*-chore.md"))
+    assert len(created) == 1
+    text = created[0].read_text()
     assert f"repo: {target}" in text
     assert "model: x/y:high" in text
     assert "lint: clean" in r.stdout

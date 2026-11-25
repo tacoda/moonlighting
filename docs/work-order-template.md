@@ -36,12 +36,12 @@ Runnable checks the agent can verify itself before reporting done —
 
 <!--
 Frontmatter fields:
-  id      zero-padded, 3 digits (001, 002, ...)
+  id      7-char hex sha (bin/new-order fills it)
   status  draft | approved | review | blocked | done | rejected
-  created YYYY-MM-DD
 -->
 
 <!--
+  created YYYY-MM-DD
   branch  optional, defaults to wo/<id>
   repo    optional, default is this factory. A path or a git URL.
           URLs are cloned under repos/ and refreshed each night.

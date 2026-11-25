@@ -149,12 +149,11 @@ uv run python day-shift/status.py
 
 ## First night
 
-1. `uv run python day-shift/new-order.py "My task"` and fill it in
-2. Flip `status: draft` → `approved` — this is the handover
-3. `uv run python night-shift/run.py`
-4. Tomorrow: `uv run python day-shift/status.py` → review the diff →
-   `uv run python day-shift/accept.py 001`
-5. Optional: `uv run python night-shift/schedule.py install` runs the night
-   daily at 00:01
+1. `bin/new-order` — it asks for the title, repo and model, then offers to
+   approve. Flags work too: `bin/new-order "My task" --approve`
+2. `bin/night` runs the queue
+3. Tomorrow: `bin/status` shows the verdicts. Review the diff, then
+   `bin/accept 001`
+4. Optional: `bin/schedule install` runs the night daily at 00:01
 
 The full shift checklists live in [`docs/runbook.md`](docs/runbook.md).

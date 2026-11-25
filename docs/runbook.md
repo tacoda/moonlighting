@@ -5,7 +5,7 @@
 1. Install pi: `curl -fsSL https://pi.dev/install.sh | sh` (and/or the Claude
    Code CLI, if you want the `claude` engine).
 2. Log the host(s) in: `pi` → `/login`; `claude` login on first run.
-3. Put both hosts under the nWave guard — install once, then activate
+3. Put all hosts under the nWave guard — install once, then activate
    globally (revert with `nwave-ai mode opt-in`):
 
        nwave-ai install --platform pi
@@ -29,9 +29,13 @@
 
 ## Writing orders (day shift)
 
-- `uv run python day-shift/new-order.py "Title" [--repo R] [--model M]` creates the
-  next order: id, filename slug, date and branch come filled in. One order =
-  one branch = one review. Ids are never reused, even after `done`.
+- `bin/new-order` creates the next order and asks for title, repo and model,
+  then offers to approve. Flags work for scripting:
+  `bin/new-order "Title" --repo R --model M --approve`. One order = one
+  branch = one review. Each order gets a unique 7-char sha id. Ids are
+  never reused, even after `done`.
+- `bin/status` shows the queue: approved orders, blocked ones, review items
+  and drafts.
 - Before approving: `uv run python night-shift/lint-order.py` — it catches
   malformed orders (missing fields, empty sections, bad repo paths) before
   they spend tokens. The night runner also lint-blocks approved orders

@@ -382,11 +382,11 @@ class WorkOrder:
         oid = self.id
         if not oid:
             problems.append("id: missing")
-        elif not re.fullmatch(r"\d{3}", oid):
-            problems.append(f"id: '{oid}' is not 3 digits (zero-pad, e.g. 007)")
-        if oid and self.path.stem[:3] != oid:
+        elif not re.fullmatch(r"[0-9a-f]{7}", oid):
+            problems.append(f"id: '{oid}' is not a 7-char hex sha")
+        if oid and not self.path.stem.startswith(oid):
             problems.append(f"id '{oid}' does not match the filename prefix "
-                            f"'{self.path.stem[:3]}'")
+                            f"'{self.path.stem[:len(oid)]}'")
         if not self.title:
             problems.append("title: missing")
         if not self.status:

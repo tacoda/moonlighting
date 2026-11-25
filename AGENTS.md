@@ -7,7 +7,7 @@ contract between shifts.
 
 ## Layout
 
-- `work-orders/NNN-short-title.md` — one file per unit of work; ids zero-padded to 3 digits
+- `work-orders/<sha>-short-title.md` — one file per unit of work. Each order carries a unique 7-char sha id
 - `night-shift/run.py` — executes approved orders headlessly via pi
 - `night-shift/NIGHT-SHIFT.md` — the night agent's operating manual
 - `day-shift/status.py` — floor report · `day-shift/accept.py NNN` — squash-merge an order into its target repo

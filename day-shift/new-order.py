@@ -4,16 +4,19 @@
     uv run python day-shift/new-order.py "Atom feed for the essays"
     uv run python day-shift/new-order.py "Error contract" --repo ~/repos/lark
 
-Picks the next free id, slugs the title into the filename, and fills the
-frontmatter. Orders live outside git: the file lands in the orders
+Generates a unique sha id, slugs the title into the filename, and fills
+the frontmatter. Orders live outside git: the file lands in the orders
 directory (default work-orders/, see FACTORY_ORDERS_DIR).
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import sys
+import time
+import uuid
 from datetime import date
 from pathlib import Path
 
@@ -26,15 +29,49 @@ def slugify(title: str) -> str:
     return slug[:40] or "order"
 
 
+def make_id() -> str:
+    digest = hashlib.sha256(f"{time.time_ns()}:{uuid.uuid4()}".encode())
+    return digest.hexdigest()[:7]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Create the next work order from the template.")
-    ap.add_argument("title", help="short imperative title")
+    ap.add_argument("title", nargs="?", default=None,
+                    help="short imperative title (asked for interactively)")
     ap.add_argument("--repo", default=None,
                     help="target repo (path or git URL) for the order")
     ap.add_argument("--model", default=None,
                     help="model string, passed verbatim to the engine")
+    ap.add_argument("--approve", action="store_true",
+                    help="set status: approved right away")
+    ap.add_argument("--draft", action="store_true",
+                    help="keep status: draft, skip the approval question")
     args = ap.parse_args()
+    if args.approve and args.draft:
+        factory.die("--approve and --draft cannot be combined", 2)
+    interactive = sys.stdin.isatty()
+
+    def ask(prompt: str) -> str:
+        try:
+            return input(prompt).strip()
+        except EOFError:
+            return ""
+
+    title = args.title
+    if not title:
+        if not interactive:
+            ap.error("title is required when not running interactively")
+        title = ask("title (short imperative): ")
+    if not title:
+        factory.die("a title is required")
+    repo = args.repo
+    model = args.model
+    if interactive:
+        if repo is None:
+            repo = ask("target repo, path or URL (enter for this factory): ") or None
+        if model is None:
+            model = ask("model for the engine (enter for the host default): ") or None
 
     root = factory.repo_root()
     orders = factory.orders_dir(root)
@@ -43,19 +80,15 @@ def main() -> None:
         factory.die(f"missing template: {template}")
     orders.mkdir(parents=True, exist_ok=True)
 
-    next_id = 1
-    for path in orders.glob("*.md"):
-        m = re.match(r"^(\d{3})", path.name)
-        if m:
-            next_id = max(next_id, int(m.group(1)) + 1)
-    if next_id > 999:
-        factory.die("no free 3-digit id left — archive old orders first")
-    oid = f"{next_id:03d}"
+    taken = {path.name.split("-")[0] for path in orders.glob("*.md")}
+    oid = make_id()
+    while oid in taken:
+        oid = make_id()
 
     text = template.read_text()
     text = text.replace("id: NNN", f"id: {oid}", 1)
     text = text.replace("title: Short imperative title",
-                        f"title: {args.title}", 1)
+                        f"title: {title}", 1)
     text = text.replace("created: YYYY-MM-DD",
                         f"created: {date.today().isoformat()}", 1)
     text = text.replace("branch: wo/NNN", f"branch: wo/{oid}", 1)
@@ -66,15 +99,15 @@ def main() -> None:
         if line.startswith("branch:"):
             insert_at = i + 1
     extra = []
-    if args.repo:
-        extra.append(f"repo: {args.repo}")
-    if args.model:
-        extra.append(f"model: {args.model}")
+    if repo:
+        extra.append(f"repo: {repo}")
+    if model:
+        extra.append(f"model: {model}")
     if insert_at is not None:
         lines[insert_at:insert_at] = extra
     text = "\n".join(lines) + "\n"
 
-    dest = orders / f"{oid}-{slugify(args.title)}.md"
+    dest = orders / f"{oid}-{slugify(title)}.md"
     if dest.exists():
         factory.die(f"file already exists: {dest}")
     dest.write_text(text)
@@ -87,8 +120,24 @@ def main() -> None:
             print(f"  - {p}")
         print("fix the problems above, then approve")
         sys.exit(1)
-    print("lint: clean. Edit the body, then set status: approved to hand "
-          "it to the night")
+    print("lint: clean. Edit the body before the night runs it.")
+
+    def approve_now() -> None:
+        factory.set_status(dest, "approved")
+        print("status: approved — the night picks it up")
+
+    if args.approve:
+        approve_now()
+    elif args.draft:
+        print("left as draft")
+    elif interactive:
+        answer = ask("approve now for tonight? [y/N]: ").lower()
+        if answer in ("y", "yes"):
+            approve_now()
+        else:
+            print("left as draft. Set status: approved when ready.")
+    else:
+        print("set status: approved to hand it to the night")
 
 
 if __name__ == "__main__":
