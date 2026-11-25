@@ -927,12 +927,12 @@ def test_harness_precedence(tmp_path):
     (fl["orders"] / "b2c3d4e-b.md").write_text(
         ORDER.replace("status: draft", "status: approved")
              .replace("id: a1b2c3d", "id: b2c3d4e")
-             .replace("---\n", "---\nrepo: shop\nengine: codex\nmodel: gpt-5\nqa-model: mini\n", 1))
+             .replace("---\n", "---\nrepo: shop\nengine: codex\nmodel: gpt-5\nqa-model: mini\nplan-model: planner-x\n", 1))
     night = nightrun.NightRun(fl, None, None, 5, True, 60)
     order_a = factory.WorkOrder(fl["orders"] / "a1b2c3d-a.md")
     order_b = factory.WorkOrder(fl["orders"] / "b2c3d4e-b.md")
-    assert night._harness_for(order_a, shop) == ("claude", "alias-9", "haiku")
-    assert night._harness_for(order_b, shop) == ("codex", "gpt-5", "mini")
+    assert night._harness_for(order_a, shop) == ("claude", "alias-9", "haiku", None)
+    assert night._harness_for(order_b, shop) == ("codex", "gpt-5", "mini", "planner-x")
 
 
 def test_flag_engine_beats_repo(tmp_path):
@@ -946,11 +946,13 @@ def test_flag_engine_beats_repo(tmp_path):
 
 def test_new_order_engine_fields():
     r = run_module("new_order", "Picky", "--draft",
-                   "--engine", "codex", "--qa-model", "mini")
+                   "--engine", "codex", "--qa-model", "mini",
+                   "--plan-model", "planner")
     assert r.returncode == 0, r.stderr
     created = list(factory.orders_dir().glob("*-picky.md"))
     text = created[0].read_text()
     assert "engine: codex" in text and "qa-model: mini" in text
+    assert "plan-model: planner" in text
 
 
 def test_reject_records_reason_and_status():
@@ -998,6 +1000,76 @@ def test_edit_runs_editor_and_lints(tmp_path, monkeypatch):
     text = (orders / "a1b2c3d-x.md").read_text()
     assert "added by editor" in text
     assert "lint: clean" in r.stdout
+
+
+def test_night_plan_pass_feeds_builder(tmp_path, monkeypatch, capsys):
+    fl = fake_floor()
+    (fl["orders"] / "aaa1111-p.md").write_text(
+        ORDER.replace("id: a1b2c3d", "id: aaa1111")
+             .replace("status: draft", "status: approved")
+             .replace("---\n", "---\nrepo: shop\nplan-model: planner-x\n", 1))
+    repo = FakeRepo(tmp_path / "shop")
+    patch_resolve(monkeypatch, {"shop": repo})
+    calls = []
+
+    @contextlib.contextmanager
+    def fake_worktree(repo_, path, branch, base):
+        path.mkdir(parents=True, exist_ok=True)
+        yield type("FakeWt", (), {"path": path})()
+
+    monkeypatch.setattr(factory, "Worktree", fake_worktree)
+    monkeypatch.setattr(factory, "git",
+                        lambda cwd, *a, check=True, env=None: _R(0))
+    monkeypatch.setattr(factory, "git_out", lambda cwd, *a: "2")
+
+    def fake_agent_pass(self, argv, cwd, stdin_text=None, timeout_secs=None,
+                        env_extra=None, engine=None):
+        calls.append(stdin_text)
+        if len(calls) == 1:
+            return 0, "planner output", ""
+        return 0, '{"events": true}', ""
+
+    monkeypatch.setattr(nightrun.NightRun, "_agent_pass", fake_agent_pass)
+    monkeypatch.setattr(nightrun.NightRun, "_qa_pass",
+                        lambda self, *a, **k: (0, "", "QA ok", False))
+    night = nightrun.NightRun(fl, "pi", None, 1, False, 60)
+    night.run()
+    assert len(calls) == 2
+    assert "Plan the implementation" in calls[0]
+    assert "Implementation plan" in calls[1]
+    assert "planner output" in calls[1]
+    text = (fl["orders"] / "aaa1111-p.md").read_text()
+    assert "planning pass" in text and "planner output" in text
+
+
+def test_night_plan_skipped_without_model(tmp_path, monkeypatch):
+    fl = fake_floor()
+    (fl["orders"] / "aaa1111-p.md").write_text(
+        ORDER.replace("id: a1b2c3d", "id: aaa1111")
+             .replace("status: draft", "status: approved")
+             .replace("---\n", "---\nrepo: shop\n", 1))
+    repo = FakeRepo(tmp_path / "shop")
+    patch_resolve(monkeypatch, {"shop": repo})
+    calls = []
+
+    @contextlib.contextmanager
+    def fake_worktree(repo_, path, branch, base):
+        path.mkdir(parents=True, exist_ok=True)
+        yield type("FakeWt", (), {"path": path})()
+
+    monkeypatch.setattr(factory, "Worktree", fake_worktree)
+    monkeypatch.setattr(factory, "git",
+                        lambda cwd, *a, check=True, env=None: _R(0))
+    monkeypatch.setattr(factory, "git_out", lambda cwd, *a: "2")
+    monkeypatch.setattr(nightrun.NightRun, "_agent_pass",
+                        lambda self, argv, cwd, stdin_text=None,
+                        timeout_secs=None, env_extra=None, engine=None:
+                        calls.append(stdin_text) or (0, "out", ""))
+    monkeypatch.setattr(nightrun.NightRun, "_qa_pass",
+                        lambda self, *a, **k: (0, "", "QA ok", False))
+    night = nightrun.NightRun(fl, "pi", None, 1, False, 60)
+    night.run()
+    assert len(calls) == 1
 
 
 def test_schedule_at_validation(monkeypatch):

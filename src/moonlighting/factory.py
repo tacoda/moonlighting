@@ -470,6 +470,10 @@ class WorkOrder:
     def qa_model(self) -> str:
         return self.fields.get("qa-model", "")
 
+    @property
+    def plan_model(self) -> str:
+        return self.fields.get("plan-model", "")
+
     def set_status(self, new_status: str) -> None:
         set_status(self.path, new_status)
         self.fields["status"] = new_status
@@ -515,7 +519,7 @@ class WorkOrder:
         branch = self.fields.get("branch")
         if branch and re.search(r"\s", branch):
             problems.append(f"branch: '{branch}' contains whitespace")
-        for field in ("model", "engine", "qa-model"):
+        for field in ("model", "engine", "qa-model", "plan-model"):
             value = self.fields.get(field, "")
             if value and re.search(r"\s", value):
                 problems.append(f"{field}: '{value}' contains whitespace")

@@ -7,6 +7,7 @@
 engine = "pi"            # pi, claude or opencode
 model = ""               # optional, engine-specific syntax, passed verbatim
 qa-model = ""            # optional, empty means the order model
+plan-model = ""          # empty skips the pass
 orders-dir = ""          # optional, empty means <data dir>/orders
                          # (~/.local/share/moonlighting/orders)
 

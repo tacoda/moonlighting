@@ -147,12 +147,16 @@ def new_order_cmd(ctx: typer.Context,
                       "and the factory setting."),
                   qa_model: str | None = typer.Option(
                       None, "--qa-model",
-                      help="QA model for this order.")):
+                      help="QA model for this order."),
+                  plan_model: str | None = typer.Option(
+                      None, "--plan-model",
+                      help="Planning model for this order.")):
     _forward(ctx, "new_order", [title] if title else [],
              [("--repo", repo), ("--model", model),
               ("--approve", approve), ("--draft", draft),
               ("--body", body), ("--body-file", body_file),
-              ("--engine", engine), ("--qa-model", qa_model)])
+              ("--engine", engine), ("--qa-model", qa_model),
+              ("--plan-model", plan_model)])
 
 
 @app.command("night", help="Run every approved order through the nWave guard.",
@@ -170,6 +174,11 @@ def night_cmd(ctx: typer.Context,
                   None, "--qa-model",
                   help="Separate model for the QA pass. Falls back to the "
                   "run model. Env FACTORY_QA_MODEL, or the config file."),
+              plan_model: str | None = typer.Option(
+                  None, "--plan-model",
+                  help="Model for the planning pass, which runs before the "
+                  "builder when set. Env FACTORY_PLAN_MODEL, or the config "
+                  "file."),
               repo: str | None = typer.Option(
                   None, "--repo", help="Only run orders for this target repo."),
               max_orders: int | None = typer.Option(
@@ -180,7 +189,8 @@ def night_cmd(ctx: typer.Context,
                   help="List what would run. Change nothing.")):
     _forward(ctx, "run", [],
              [("--engine", engine), ("--model", model),
-              ("--qa-model", qa_model), ("--repo", repo),
+              ("--qa-model", qa_model), ("--plan-model", plan_model),
+              ("--repo", repo),
               ("--max-orders", max_orders), ("--dry-run", dry_run)])
 
 

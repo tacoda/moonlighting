@@ -24,6 +24,11 @@ from pathlib import Path
 
 from . import factory
 
+PLAN_SYSTEM = ("You are the planning pass of a night shift. Read the work "
+               "order and reply with a short implementation plan: the "
+               "approach, the files to change, and the risks. Do not write "
+               "code. A builder follows your plan next.")
+
 
 class NightRun:
     """One night shift: collect the approved queue, execute it under locks,
@@ -32,18 +37,23 @@ class NightRun:
     def __init__(self, fl: dict, engine_name: str | None,
                  repo_filter: str | None,
                  max_orders: int, dry_run: bool, timeout_secs: int,
-                 model: str | None = None, qa_model: str | None = None):
+                 model: str | None = None, qa_model: str | None = None,
+                 plan_model: str | None = None):
         self.fl = fl
         self.flag_engine = engine_name
         self.flag_model = model
         self.flag_qa_model = qa_model
+        self.flag_plan_model = plan_model
         self.env_engine = os.environ.get("FACTORY_ENGINE")
         self.env_model = os.environ.get("FACTORY_MODEL")
         self.env_qa_model = os.environ.get("FACTORY_QA_MODEL")
+        self.env_plan_model = os.environ.get("FACTORY_PLAN_MODEL")
         cfg = factory.load_config().get("factory", {})
         self.cfg_engine = cfg.get("engine")
         self.cfg_model = cfg.get("model")
         self.cfg_qa_model = cfg.get("qa-model")
+        self.cfg_plan_model = cfg.get("plan-model")
+        self.plan_enabled = os.environ.get("FACTORY_PLAN", "1") != "0"
         self.engine_name = (self.flag_engine or self.env_engine
                             or self.cfg_engine or "pi")
         self.engine = factory.engine(self.engine_name)
@@ -190,13 +200,55 @@ class NightRun:
                       f"isolated from the night (it runs in a worktree)")
             base = repo.base_ref()
             repo_env = repo.env()
-            engine_name, model, qa_model = self._harness_for(order, repo)
+            engine_name, model, qa_model, plan_model = self._harness_for(
+                order, repo)
             engine = factory.engine(engine_name)
             with factory.Worktree(repo, self._wpath(repo, order.id),
                                   order.branch, base) as wt:
                 prompt = (f"Execute work order {order.id} now, following the "
                           f"night-shift manual in your system prompt.\n\n"
                           f"# Work order {order.id}\n\n{order.path.read_text()}")
+                plan_rc = None
+                plan_report = ""
+                if self.plan_enabled and plan_model:
+                    print(f"planning pass on wo-{order.id} "
+                          f"(model {plan_model}) ...")
+                    plan_prompt = (
+                        f"Plan the implementation of work order {order.id}. "
+                        f"Do not write code. Reply with a short plan: the "
+                        f"approach, the files to change, and the risks.\n\n"
+                        f"# Work order {order.id}\n\n{order.path.read_text()}")
+                    plan_ref = self.sessions.ref(
+                        f"{engine_name}:plan:{order.id}")
+                    pargv, pref, pstdin = engine.build_command(
+                        PLAN_SYSTEM, plan_prompt, f"plan-{order.id}",
+                        plan_ref, json_audit=self.json_audit,
+                        model=plan_model)
+                    plan_rc, plan_raw, plan_err = self._agent_pass(
+                        pargv, wt.path, pstdin, env_extra=repo_env,
+                        engine=engine)
+                    new_plan_ref = pref or engine.ref_from_output(plan_raw)
+                    if new_plan_ref:
+                        self.sessions.set_ref(
+                            f"{engine_name}:plan:{order.id}", new_plan_ref)
+                    plan_report = (engine.extract_report(plan_raw)
+                                   if self.json_audit else plan_raw)
+                    # the planner may touch the tree: reset it, so the
+                    # builder starts clean
+                    factory.git(wt.path, "reset", "--hard", base,
+                                check=False)
+                    factory.git(wt.path, "clean", "-fd", check=False)
+                    if plan_rc == 0 and plan_report.strip():
+                        prompt = (f"Execute work order {order.id} now. A "
+                                  f"planning pass wrote the plan below. "
+                                  f"Follow it where it helps.\n\n"
+                                  f"# Implementation plan\n\n{plan_report}\n\n"
+                                  f"# Work order {order.id}\n\n"
+                                  f"{order.path.read_text()}")
+                    else:
+                        plan_report = ""
+                        print(f"plan pass failed (exit {plan_rc}) — "
+                              f"building without it")
                 ref = self.sessions.ref(f"{engine_name}:{order.id}")
                 argv, new_ref, stdin_text = engine.build_command(
                     self.system_prompt, prompt, f"wo-{order.id}", ref,
@@ -234,7 +286,9 @@ class NightRun:
                                   raw_events=raw_events, qa_rc=qa_rc,
                                   qa_raw=qa_raw, qa_report=qa_report,
                                   qa_moved=qa_moved, no_commits=no_commits,
-                                  model=model, engine_name=engine_name)
+                                  model=model, engine_name=engine_name,
+                                  plan_rc=plan_rc, plan_report=plan_report,
+                                  plan_model=plan_model)
 
     def _agent_pass(self, argv: list[str], cwd: Path,
                     stdin_text: str | None = None,
@@ -327,7 +381,9 @@ class NightRun:
                   secs: int, raw_events: str, qa_rc: int | None,
                   qa_raw: str, qa_report: str, qa_moved: bool = False,
                   no_commits: bool = False, model: str | None = None,
-                  engine_name: str | None = None) -> str:
+                  engine_name: str | None = None,
+                  plan_rc: int | None = None, plan_report: str = "",
+                  plan_model: str | None = None) -> str:
         ename = engine_name or self.engine_name
         outfile = self.logs / f"{self.today}-wo-{order.id}.out.md"
         errfile = self.logs / f"{self.today}-wo-{order.id}.err.log"
@@ -353,6 +409,11 @@ class NightRun:
             if run_err:
                 note += f" stderr: {errfile.name}\n"
             order.append(note + "\n")
+        if plan_rc is not None:
+            plan_model_note = f", model {plan_model}" if plan_model else ""
+            order.append(f"\n---\n\n### planning pass (engine {ename}"
+                         f"{plan_model_note}, exit {plan_rc})\n\n")
+            order.append(plan_report or "(empty plan)")
         if qa_rc is not None:
             order.append(f"\n---\n\n### QA pre-shift "
                          f"(engine {ename}, exit {qa_rc})\n\n")
@@ -364,11 +425,12 @@ class NightRun:
         order.set_status(new_status)
 
         qa_note = f", qa exit {qa_rc}" if qa_rc is not None else ""
+        plan_note = f", plan exit {plan_rc}" if plan_rc is not None else ""
         with self.run_log.open("a") as f:
             f.write(f"\n## {datetime.now():%H:%M} run\n")
             f.write(f"- wo-{order.id} ({order.rel}) -> {repo.display()}: "
                     f"{new_status}, engine {ename}{model_note}, "
-                    f"exit {rc}{qa_note}, "
+                    f"exit {rc}{plan_note}{qa_note}, "
                     f"{secs}s — report in order file; "
                     f"raw: {outfile.name}\n")
 
@@ -408,17 +470,20 @@ class NightRun:
         return self.worktrees / repo.slug() / f"wo-{order_id}"
 
     def _harness_for(self, order: factory.WorkOrder,
-                     repo: factory.TargetRepo) -> tuple[str, str | None, str | None]:
+                     repo: factory.TargetRepo) -> tuple[str, str | None, str | None, str | None]:
         """Per-order harness. Precedence: the order frontmatter, then
         explicit flags, then the environment, then the repo binding, then
-        the [factory] section, then pi."""
+        the [factory] section, then pi. plan_model stays None when no
+        plan-model resolves anywhere: the pass is skipped."""
         engine_name = (order.engine or self.flag_engine or self.env_engine
                        or repo.engine or self.cfg_engine or "pi")
         model = (order.model or self.flag_model or self.env_model
                  or repo.model or self.cfg_model or None)
         qa_model = (order.qa_model or self.flag_qa_model or self.env_qa_model
                     or repo.qa_model or self.cfg_qa_model or model)
-        return engine_name, model, qa_model
+        plan_model = (order.plan_model or self.flag_plan_model
+                      or self.env_plan_model or self.cfg_plan_model or None)
+        return engine_name, model, qa_model, plan_model
 
 
 def main() -> None:
@@ -430,6 +495,10 @@ def main() -> None:
                     help="model string for the engine, passed verbatim "
                          "(host-specific syntax). env FACTORY_MODEL, or "
                          "config [factory] model")
+    ap.add_argument("--plan-model", default=None, dest="plan_model",
+                    help="model for the planning pass, which runs before "
+                         "the builder when set. env FACTORY_PLAN_MODEL, or "
+                         "config [factory] plan-model")
     ap.add_argument("--qa-model", default=None,
                     help="model for the QA pass. Falls back to the order "
                          "model. env FACTORY_QA_MODEL, or config "
@@ -454,7 +523,8 @@ def main() -> None:
 
     with factory.Lock(fl["locks"], "night", "the night shift"):
         NightRun(fl, args.engine, args.repo, args.max_orders,
-                 args.dry_run, timeout_secs, args.model, args.qa_model).run()
+                 args.dry_run, timeout_secs, args.model, args.qa_model,
+                 args.plan_model).run()
 
 
 if __name__ == "__main__":
