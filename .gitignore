@@ -13,3 +13,6 @@ night-shift/worktrees/*
 !night-shift/worktrees/.gitkeep
 night-shift/logs/cron.log
 night-shift/sessions.json
+# nWave config (keep .nwave/config.json trackable)
+.nwave/*
+!.nwave/config.json

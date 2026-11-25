@@ -1,3 +1,5 @@
 {
-  "jev": "authorized"
+  "enabled": true,
+  "jev": "authorized",
+  "schema-version": 1
 }
