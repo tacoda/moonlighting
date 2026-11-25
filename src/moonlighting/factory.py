@@ -23,7 +23,7 @@ import signal
 import subprocess
 import time
 import uuid
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import NoReturn
 
@@ -371,6 +371,10 @@ class WorkOrder:
     def append(self, text: str) -> None:
         with self.path.open("a") as f:
             f.write(text)
+
+    def record_decision(self, text: str) -> None:
+        stamp = f"{datetime.now():%Y-%m-%d %H:%M}"
+        self.append(f"\n### {stamp} — day shift decision\n\n{text}\n")
 
     def lint(self) -> list[str]:
         """Mechanical validation. Returns problems (empty = clean).

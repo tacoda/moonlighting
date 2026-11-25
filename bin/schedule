@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# Wrapper: install, remove or show the nightly cron entry.
-cd "$(dirname "$0")/.." || exit 1
-exec uv run python night-shift/schedule.py "$@"

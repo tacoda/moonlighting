@@ -19,48 +19,43 @@ review branches & reports    ◄──────   flip orders to review/block
 merge, block, or reject               never merge, never touch main
 ```
 
-The night runs on one command:
+The whole lifecycle is one binary, `factory`, with a subcommand per workflow:
 
-```bash
-uv run python night-shift/run.py    # execute the oldest approved order
+```text
+factory new-order "Title"      create an order; it asks, then offers to approve
+factory status                 see every order: approved, blocked, review, draft, done
+factory approve ID             approve a draft
+factory night                  run the queue (--repo, --engine, --model, --max-orders)
+factory accept ID              merge a reviewed order into its target repo
+factory answer ID "text"       answer a blocked order; it re-approves for tonight
+factory feedback ID "text"     send a review back with feedback; it goes to blocked
+factory lint-orders            check every order before spending tokens
+factory rotate-logs --days 90  gzip old logs (never deletes)
+factory schedule install       nightly cron at 00:01 (remove and status too)
 ```
 
-and the morning starts with another:
-
-```bash
-uv run python day-shift/status.py   # what needs my decision?
-```
-
-The same workflows live in `bin/` as short scripts: `bin/night`, `bin/status`,
-`bin/new-order`, `bin/accept`, `bin/lint-orders`, `bin/rotate-logs`, and
-`bin/schedule`.
+uv runs everything under the hood. Commands work through `uv run factory ...`
+inside a factory checkout, or globally after `uv tool install moonlighting`.
 
 ## Layout
 
 ```text
 work-orders/            order files (input, gitignored; FACTORY_ORDERS_DIR relocates it)
-night-shift/run.py      the night runner (headless pi, claude or opencode)
 night-shift/NIGHT-SHIFT.md   the night agent's operating manual
 night-shift/QA-SHIFT.md      the QA pre-shift reviewer's manual
-night-shift/lint-order.py    validate work orders before spending tokens
-night-shift/schedule.py      install/remove the nightly cron entry
 night-shift/logs/       run reports, QA packets, event streams, morning digest (append-only)
 night-shift/sessions.json   engine session ids per order (local state, gitignored)
 night-shift/locks/      run locks (gitignored)
 night-shift/worktrees/  per-run worktrees of target repos (gitignored, removed after each run)
 repos/                  target repos cloned from git URLs (gitignored)
-day-shift/status.py     factory floor report
-day-shift/new-order.py  create the next order from the template
-day-shift/accept.py     squash-merge a reviewed order into its target repo
-day-shift/rotate-logs.py    gzip old night logs into logs/archive/ (never deletes)
-bin/                    short wrappers: night, status, new-order, accept, and more
-factory.py              shared helpers for the factory scripts
+src/moonlighting/       the library; every workflow is a factory subcommand
+bin/                    misc scripts (the factory greeting)
 docs/work-order-template.md  how orders are written
 docs/runbook.md         shift checklists (morning, handover, forensics)
 docs/flow.md            mermaid diagrams: the day/night work flow
 PLAN.md                 phased roadmap
 tests/                  pytest suite for the factory scripts
-pyproject.toml          uv project (dev dependency: pytest), with uv.lock
+pyproject.toml          uv project; publishes the factory command
 AGENTS.md               standing instructions for any agent in this repo
 ```
 
@@ -116,8 +111,8 @@ Every run is double-checked by default:
 One factory process per target repo; processes run in parallel:
 
 ```bash
-uv run python night-shift/run.py --repo ~/repos/shop
-uv run python night-shift/run.py --repo git@github.com:acme/api.git --engine claude
+factory night --repo ~/repos/shop
+factory night --repo git@github.com:acme/api.git --engine claude
 ```
 
 Locks make collisions visible: one night per target repo, one night per
@@ -127,20 +122,22 @@ and run one process in each:
 ```bash
 git clone ~/repos/moonlighting ~/factories/shop-factory
 cd ~/factories/shop-factory
-uv run python night-shift/run.py --repo ~/repos/shop
+factory night --repo ~/repos/shop
 # in another terminal, another clone, another repo, same time — no conflict
 ```
 
 The morning is still one command per factory:
 
 ```bash
-uv run python day-shift/status.py
+factory status
 ```
 
 ## Requirements
 
 - git, Python 3.9+, and [uv](https://docs.astral.sh/uv/). The factory code
-  is stdlib-only. uv runs everything: `uv run python ...`, `uv run pytest`
+  is stdlib-only. uv runs everything: `uv sync` installs the `factory`
+  command into the checkout, `uv run pytest` runs the suite. Publish to
+  PyPI with `uv build` and `uv publish`.
 - the host CLI for your selected engine, logged in. Pick [pi](https://pi.dev)
   (`pi` → `/login` once), Claude Code (`claude` installed and logged in)
   and/or [opencode](https://opencode.ai) (`opencode auth login` once). Or
@@ -149,11 +146,11 @@ uv run python day-shift/status.py
 
 ## First night
 
-1. `bin/new-order` — it asks for the title, repo and model, then offers to
-   approve. Flags work too: `bin/new-order "My task" --approve`
-2. `bin/night` runs the queue
-3. Tomorrow: `bin/status` shows the verdicts. Review the diff, then
-   `bin/accept 001`
-4. Optional: `bin/schedule install` runs the night daily at 00:01
+1. `factory new-order "My task"` — answer the prompts, then approve
+2. `factory night`
+3. Tomorrow: `factory status` shows the verdicts. Review the diff, then
+   `factory accept ID`, `factory feedback ID "..."` or
+   `factory answer ID "..."`
+4. Optional: `factory schedule install` runs the night daily at 00:01
 
 The full shift checklists live in [`docs/runbook.md`](docs/runbook.md).

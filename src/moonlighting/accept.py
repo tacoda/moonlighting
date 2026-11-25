@@ -7,19 +7,18 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import factory  # noqa: E402
+from moonlighting import factory
 
 
 def main() -> None:
     if len(sys.argv) != 2:
-        factory.die("usage: day-shift/accept.py NNN", 2)
+        factory.die("usage: factory accept ID", 2)
     oid = sys.argv[1]
 
     root = factory.repo_root()
     matches = sorted(factory.orders_dir(root).glob(f"{oid}*.md"))
     if len(matches) != 1:
-        factory.die(f"expected exactly one work-orders/{oid}*.md, "
+        factory.die(f"expected exactly one order matching '{oid}*', "
                     f"found {len(matches)}")
     order = factory.WorkOrder(matches[0], root)
 

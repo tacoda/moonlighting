@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""night-shift/run.py — execute approved work orders headlessly.
+"""factory night — execute approved work orders headlessly.
 
 Each order names its target repo via the `repo:` frontmatter field (default:
 this factory; a path or git URL points elsewhere — URLs are cloned under
@@ -22,8 +22,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import factory  # noqa: E402
+from moonlighting import factory
 
 
 class NightRun:

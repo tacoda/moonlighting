@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""day-shift/rotate-logs.py — gzip old night logs, never delete them.
+"""factory rotate-logs — gzip old night logs, never delete them.
 
 Logs are the factory's append-only memory. This tool compresses log
 files older than --days into night-shift/logs/archive/ so the directory
 stays readable. Preview by default. Pass --write to rotate.
 
-    uv run python day-shift/rotate-logs.py --days 90           # preview
-    uv run python day-shift/rotate-logs.py --days 90 --write   # rotate
+    factory rotate-logs --days 90           # preview
+    factory rotate-logs --days 90 --write   # rotate
 """
 
 from __future__ import annotations
@@ -15,10 +15,8 @@ import argparse
 import gzip
 import sys
 import time
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import factory  # noqa: E402
+from moonlighting import factory
 
 
 def main() -> None:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""day-shift/status.py — factory floor report: what's queued, what needs you."""
+"""factory status — factory floor report: what's queued, what needs you."""
 
 from __future__ import annotations
 
@@ -8,8 +8,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import factory  # noqa: E402
+from moonlighting import factory
 
 
 def branch_state(repo: factory.TargetRepo, branch: str) -> str:
@@ -70,11 +69,11 @@ def main() -> None:
 
     groups = [
         ("review — needs your decision:", "review",
-         "→ review the branch in the target repo, then python3 day-shift/accept.py ID"),
+         "→ review the branch, then factory accept ID (or factory feedback ID)"),
         ("blocked — waiting on you:", "blocked",
-         "→ answer in the order file, then set status: approved"),
+         "→ factory answer ID \"your answer\" — it re-approves for tonight"),
         ("approved — queued for tonight:", "approved",
-         "→ python3 night-shift/run.py --repo <repo>"),
+         "→ factory night --repo <repo>"),
         ("draft — being written:", "draft", ""),
     ]
 

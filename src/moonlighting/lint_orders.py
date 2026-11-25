@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""night-shift/lint-order.py — validate work orders before spending tokens.
+"""factory lint-orders — validate work orders before spending tokens.
 
 Mechanical checks only: frontmatter, required fields, status vocabulary,
 required sections, repo resolvability, duplicate ids. Judgment calls are
@@ -12,10 +12,8 @@ without spending tokens; this CLI is for the day shift, before approving.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import factory  # noqa: E402
+from moonlighting import factory
 
 
 def main() -> None:

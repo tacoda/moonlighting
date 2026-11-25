@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# Wrapper: lint all work orders. Run from anywhere.
-cd "$(dirname "$0")/.." || exit 1
-exec uv run python night-shift/lint-order.py "$@"

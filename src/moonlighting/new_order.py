@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""day-shift/new-order.py TITLE — create the next work order from the template.
+"""factory new-order TITLE — create the next work order from the template.
 
-    uv run python day-shift/new-order.py "Atom feed for the essays"
-    uv run python day-shift/new-order.py "Error contract" --repo ~/repos/lark
+    factory new-order "Atom feed for the essays"
+    factory new-order "Error contract" --repo ~/repos/lark
 
 Generates a unique sha id, slugs the title into the filename, and fills
 the frontmatter. Orders live outside git: the file lands in the orders
@@ -18,10 +18,8 @@ import sys
 import time
 import uuid
 from datetime import date
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import factory  # noqa: E402
+from moonlighting import factory
 
 
 def slugify(title: str) -> str:

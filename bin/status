@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# Wrapper: factory floor report. Flags pass through (--repo).
-cd "$(dirname "$0")/.." || exit 1
-exec uv run python day-shift/status.py "$@"

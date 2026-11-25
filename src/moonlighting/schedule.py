@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""night-shift/schedule.py — the night that starts itself.
+"""factory schedule — the night that starts itself.
 
 Install/remove/inspect a cron entry that runs the night shift nightly.
 The cron fires harmlessly when the queue is empty: no approved orders,
 no model calls, no cost.
 
-    uv run python night-shift/schedule.py install [--at "1 0"] [--max-orders 3]
-    uv run python night-shift/schedule.py remove
-    uv run python night-shift/schedule.py status
+    factory schedule install [--at "1 0"] [--max-orders 3]
+    factory schedule remove
+    factory schedule status
 
 Requires crontab(1) and an authenticated host CLI in the cron environment
 (paths are resolved and baked in at install time).
@@ -20,10 +20,8 @@ import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import factory  # noqa: E402
+from moonlighting import factory
 
 TAG = "# moonlighting-factory"
 
@@ -101,7 +99,7 @@ def main() -> None:
         factory.die("uv not found on PATH (install https://docs.astral.sh/uv)")
     entry = (f"{minute} {hour} * * * cd '{root}' "
              f"&&{orders_part} {bin_var}='{os.path.abspath(bin_val)}' "
-             f"'{uv}' run python night-shift/run.py --engine {engine}"
+             f"'{uv}' run factory night --engine {engine}"
              f"{model_part}{qa_model_part} "
              f"--max-orders {args.max_orders} "
              f">> night-shift/logs/cron.log 2>&1 {TAG}")
@@ -111,7 +109,7 @@ def main() -> None:
     print("night schedule installed:")
     print(f"  {entry}")
     print("the cron fires harmlessly when the queue is empty; "
-          "remove with: uv run python night-shift/schedule.py remove")
+          "remove with: factory schedule remove")
 
 
 if __name__ == "__main__":

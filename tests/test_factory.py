@@ -4,7 +4,6 @@ Run with: uv run pytest
 """
 
 import gzip
-import importlib.util
 import os
 import re
 import subprocess
@@ -15,13 +14,8 @@ from pathlib import Path
 
 import pytest
 
-import factory
-
-_nightrun_path = Path(__file__).resolve().parents[1] / "night-shift" / "run.py"
-_spec = importlib.util.spec_from_file_location("nightrun", _nightrun_path)
-assert _spec is not None and _spec.loader is not None
-nightrun = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(nightrun)
+from moonlighting import factory
+from moonlighting import run as nightrun
 
 ORDER = """---
 id: a1b2c3d
@@ -476,7 +470,6 @@ def _git(path, *args):
 
 
 def test_accept_external_merge_keeps_the_checkout(tmp_path):
-    repo_root = Path(__file__).resolve().parents[1]
     factory_root = make_git_repo(tmp_path / "factory")
     target = make_git_repo(tmp_path / "target")
     _git(target, "checkout", "-q", "-b", "human-branch")
@@ -493,9 +486,8 @@ def test_accept_external_merge_keeps_the_checkout(tmp_path):
     (wo_dir / "001-test.md").write_text(order)
     _git(factory_root, "add", "-A")
     _git(factory_root, "commit", "-q", "-m", "order")
-    script = repo_root / "day-shift" / "accept.py"
-    r = subprocess.run([sys.executable, str(script), "001"], cwd=factory_root,
-                       capture_output=True, text=True)
+    r = subprocess.run([sys.executable, "-m", "moonlighting.accept", "001"],
+                       cwd=factory_root, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     main_log = subprocess.run(
         ["git", "-C", str(target), "log", "--oneline", "main"],
@@ -535,9 +527,8 @@ def test_run_empty_filter_lists_other_repos(tmp_path, capsys):
 
 
 def test_preflight_failure_lands_in_errors_log(tmp_path):
-    script = Path(__file__).resolve().parents[1] / "night-shift" / "run.py"
     floor = make_git_repo(tmp_path / "floor")
-    r = subprocess.run([sys.executable, str(script)], cwd=floor,
+    r = subprocess.run([sys.executable, "-m", "moonlighting.run"], cwd=floor,
                        capture_output=True, text=True)
     assert r.returncode == 1
     log = floor / "night-shift" / "logs" / "errors.log"
@@ -564,15 +555,14 @@ def test_lint_rejects_bad_id_format(tmp_path):
 
 
 def test_new_order_approve_flag(tmp_path):
-    repo_root = Path(__file__).resolve().parents[1]
     root = make_git_repo(tmp_path / "f")
     (root / "work-orders").mkdir()
     docs = root / "docs"
     docs.mkdir()
-    template = repo_root / "docs" / "work-order-template.md"
+    template = Path(__file__).resolve().parents[1] / "docs" / "work-order-template.md"
     (docs / "work-order-template.md").write_text(template.read_text())
-    script = repo_root / "day-shift" / "new-order.py"
-    r = subprocess.run([sys.executable, str(script), "Quick", "--approve"],
+    r = subprocess.run([sys.executable, "-m", "moonlighting.new_order",
+                        "Quick", "--approve"],
                        cwd=root, capture_output=True, text=True,
                        stdin=subprocess.DEVNULL)
     assert r.returncode == 0, r.stderr
@@ -586,9 +576,8 @@ def test_new_order_approve_flag(tmp_path):
 
 
 def test_new_order_requires_title_when_not_interactive(tmp_path):
-    script = Path(__file__).resolve().parents[1] / "day-shift" / "new-order.py"
     root = make_git_repo(tmp_path / "f")
-    r = subprocess.run([sys.executable, str(script)], cwd=root,
+    r = subprocess.run([sys.executable, "-m", "moonlighting.new_order"], cwd=root,
                        capture_output=True, text=True,
                        stdin=subprocess.DEVNULL)
     assert r.returncode == 2
@@ -604,10 +593,9 @@ def test_orders_dir_env_override(tmp_path, monkeypatch):
 
 
 def test_night_timeout_guard(tmp_path):
-    script = Path(__file__).resolve().parents[1] / "night-shift" / "run.py"
     floor = make_git_repo(tmp_path / "floor")
     env = dict(os.environ, NIGHT_TIMEOUT_SECS="abc")
-    r = subprocess.run([sys.executable, str(script)], cwd=floor,
+    r = subprocess.run([sys.executable, "-m", "moonlighting.run"], cwd=floor,
                        capture_output=True, text=True, env=env)
     assert r.returncode == 2
     assert "must be an integer" in r.stderr
@@ -642,8 +630,8 @@ def test_rotate_logs_roundtrip(tmp_path):
     old.write_text("precious report\n")
     past = time.time() - 86400 * 2
     os.utime(old, (past, past))
-    script = Path(__file__).resolve().parents[1] / "day-shift" / "rotate-logs.py"
-    r = subprocess.run([sys.executable, str(script), "--days", "1", "--write"],
+    r = subprocess.run([sys.executable, "-m", "moonlighting.rotate_logs",
+                        "--days", "1", "--write"],
                        cwd=root, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     assert not old.exists()
@@ -658,15 +646,14 @@ def test_rotate_logs_roundtrip(tmp_path):
 
 
 def test_new_order_creates_filled_ids(tmp_path):
-    repo_root = Path(__file__).resolve().parents[1]
     root = make_git_repo(tmp_path / "f")
     (root / "work-orders").mkdir()
     docs = root / "docs"
     docs.mkdir()
-    template = repo_root / "docs" / "work-order-template.md"
+    template = Path(__file__).resolve().parents[1] / "docs" / "work-order-template.md"
     (docs / "work-order-template.md").write_text(template.read_text())
-    script = repo_root / "day-shift" / "new-order.py"
-    r = subprocess.run([sys.executable, str(script), "Atom: feed!"],
+    r = subprocess.run([sys.executable, "-m", "moonlighting.new_order",
+                        "Atom: feed!"],
                        cwd=root, capture_output=True, text=True,
                        stdin=subprocess.DEVNULL)
     assert r.returncode == 0, r.stderr
@@ -678,7 +665,8 @@ def test_new_order_creates_filled_ids(tmp_path):
     assert f"id: {sha}" in text and "title: Atom: feed!" in text
     assert f"created: {date.today().isoformat()}" in text
     assert f"branch: wo/{sha}" in text
-    r2 = subprocess.run([sys.executable, str(script), "Second thing"],
+    r2 = subprocess.run([sys.executable, "-m", "moonlighting.new_order",
+                         "Second thing"],
                         cwd=root, capture_output=True, text=True)
     assert r2.returncode == 0, r2.stderr
     second = list((root / "work-orders").glob("*-second-thing.md"))
@@ -687,18 +675,16 @@ def test_new_order_creates_filled_ids(tmp_path):
 
 
 def test_new_order_repo_and_model_fields(tmp_path):
-    repo_root = Path(__file__).resolve().parents[1]
     root = make_git_repo(tmp_path / "f")
     target = make_git_repo(tmp_path / "shop")
     (root / "work-orders").mkdir()
     docs = root / "docs"
     docs.mkdir()
-    template = repo_root / "docs" / "work-order-template.md"
+    template = Path(__file__).resolve().parents[1] / "docs" / "work-order-template.md"
     (docs / "work-order-template.md").write_text(template.read_text())
-    script = repo_root / "day-shift" / "new-order.py"
     r = subprocess.run(
-        [sys.executable, str(script), "Chore", "--repo", str(target),
-         "--model", "x/y:high"],
+        [sys.executable, "-m", "moonlighting.new_order", "Chore",
+         "--repo", str(target), "--model", "x/y:high"],
         cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     assert r.returncode == 0, r.stderr
     created = list((root / "work-orders").glob("*-chore.md"))
@@ -707,3 +693,46 @@ def test_new_order_repo_and_model_fields(tmp_path):
     assert f"repo: {target}" in text
     assert "model: x/y:high" in text
     assert "lint: clean" in r.stdout
+
+
+def test_answer_and_feedback_roundtrip(tmp_path):
+    root = make_git_repo(tmp_path / "f")
+    (root / "work-orders").mkdir()
+    blocked = GOOD_APPROVED.replace("status: approved", "status: blocked")
+    (root / "work-orders" / "a1b2c3d-b.md").write_text(blocked)
+    review = GOOD_APPROVED.replace("status: approved", "status: review")
+    (root / "work-orders" / "b2c3d4e-r.md").write_text(review)
+
+    r1 = subprocess.run(
+        [sys.executable, "-m", "moonlighting.answer", "a1b2c3d",
+         "use the other path"],
+        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    assert r1.returncode == 0, r1.stderr
+    t1 = (root / "work-orders" / "a1b2c3d-b.md").read_text()
+    assert "status: approved" in t1 and "use the other path" in t1
+    assert "day shift decision" in t1
+
+    r2 = subprocess.run(
+        [sys.executable, "-m", "moonlighting.feedback", "b2c3d4e", "add tests"],
+        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    assert r2.returncode == 0, r2.stderr
+    t2 = (root / "work-orders" / "b2c3d4e-r.md").read_text()
+    assert "status: blocked" in t2 and "add tests" in t2
+
+    r3 = subprocess.run(
+        [sys.executable, "-m", "moonlighting.feedback", "a1b2c3d", "nope"],
+        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    assert r3.returncode == 1
+    assert "not 'review'" in r3.stderr
+
+
+def test_approve_script(tmp_path):
+    root = make_git_repo(tmp_path / "f")
+    (root / "work-orders").mkdir()
+    (root / "work-orders" / "a1b2c3d-d.md").write_text(ORDER)
+    r = subprocess.run([sys.executable, "-m", "moonlighting.approve", "a1b2c3d"],
+                       cwd=root, capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL)
+    assert r.returncode == 0, r.stderr
+    text = (root / "work-orders" / "a1b2c3d-d.md").read_text()
+    assert "status: approved" in text
