@@ -128,7 +128,7 @@ def new_order_cmd(ctx: typer.Context,
 def night_cmd(ctx: typer.Context,
               engine: str | None = typer.Option(
                   None, "--engine",
-                  help="Host agent: pi, claude, or opencode. Env "
+                  help="Host agent: pi, claude, opencode, codex, or any configured harness. Env "
                   "FACTORY_ENGINE, or the config file, then pi."),
               model: str | None = typer.Option(
                   None, "--model",
